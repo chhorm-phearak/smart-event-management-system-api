@@ -5,6 +5,8 @@ const {
   findByEmail,
   createUser,
   updatePassword,
+  updateProfile,
+  findById,
 } = require('../repository/userRepository');
 const {
   createResetToken,
@@ -155,6 +157,43 @@ const logout = (req, res) => {
 
 const isTokenBlacklisted = (token) => tokenBlacklist.has(token);
 
+const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { full_name, email, phone } = req.body;
+
+    // Check if email is being updated and if it's already in use by another user
+    if (email) {
+      const existingUser = await findByEmail(email);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(409).json({ message: 'Email already in use' });
+      }
+    }
+
+    const updatedUser = await updateProfile(userId, { full_name, email, phone });
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    return res.json({
+      message: 'Profile updated successfully',
+      data: {
+        user: {
+          id: updatedUser.id,
+          full_name: updatedUser.full_name,
+          email: updatedUser.email,
+          role_id: updatedUser.role_id,
+          phone: updatedUser.phone,
+        },
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -162,6 +201,7 @@ module.exports = {
   resetPassword,
   logout,
   isTokenBlacklisted,
+  updateUserProfile,
 };
 
 
