@@ -24,10 +24,10 @@ const generateToken = (user) => {
 
 const register = async (req, res) => {
   try {
-    const { role_id, full_name, email, password, phone } = req.body;
+    const { full_name, email, password, phone } = req.body;
 
-    if (!role_id || !full_name || !email || !password) {
-      return res.status(400).json({ message: 'role_id, full_name, email and password are required' });
+    if (!full_name || !email || !password) {
+      return res.status(400).json({ message: 'full_name, email and password are required' });
     }
 
     const existing = await findByEmail(email);
@@ -36,7 +36,8 @@ const register = async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = await createUser({ role_id, full_name, email, password: hashed, phone });
+    // Automatically set role_id to 'user_role' for all new registrations
+    const user = await createUser({ role_id: 'user_role', full_name, email, password: hashed, phone });
     const token = generateToken(user);
 
     return res.status(201).json({

@@ -28,7 +28,7 @@ const findValidResetRecord = async (resetToken) => {
     `SELECT pr.*, u.id as user_id
      FROM password_resets pr
      JOIN users u ON pr.user_id = u.id
-     WHERE pr.reset_token = $1 AND pr.used = FALSE`,
+     WHERE pr.reset_token = $1 AND pr.used = FALSE AND u.is_deleted = FALSE`,
     [resetToken]
   );
   return result.rows[0];
@@ -43,5 +43,7 @@ module.exports = {
   findValidResetRecord,
   markUsed,
 };
+
+
 
 

@@ -1,19 +1,21 @@
+-- Extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-///
 
-CREATE TABLE roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+---------------------------------------------------
+
+-- Create roles table with role_id as primary key (string)
+CREATE TABLE IF NOT EXISTS roles (
+    role_id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(50) NOT NULL UNIQUE,
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-///
-
-CREATE TABLE users (
+-- Create users table with foreign key reference to roles.role_id
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    role_id UUID NOT NULL,
+    role_id VARCHAR(50) NOT NULL DEFAULT 'user_role',
     full_name VARCHAR(100) NOT NULL,
     email VARCHAR(100) NOT NULL UNIQUE,
     password TEXT NOT NULL,
@@ -23,11 +25,13 @@ CREATE TABLE users (
 
     CONSTRAINT fk_users_role
         FOREIGN KEY (role_id)
-        REFERENCES roles (id)
+        REFERENCES roles (role_id)
+        ON DELETE RESTRICT
 );
-///
 
-CREATE TABLE organization_applications (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS organization_applications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
     organization_name VARCHAR(150) NOT NULL,
@@ -39,9 +43,10 @@ CREATE TABLE organization_applications (
         FOREIGN KEY (user_id)
         REFERENCES users (id)
 );
-///
 
-CREATE TABLE organizations (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
     name VARCHAR(150) NOT NULL,
@@ -52,9 +57,10 @@ CREATE TABLE organizations (
         FOREIGN KEY (user_id)
         REFERENCES users (id)
 );
-///
 
-CREATE TABLE groups (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS groups (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL,
     name VARCHAR(100) NOT NULL,
@@ -65,9 +71,10 @@ CREATE TABLE groups (
         FOREIGN KEY (organization_id)
         REFERENCES organizations (id)
 );
-///
 
-CREATE TABLE group_members (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS group_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     group_id UUID NOT NULL,
     user_id UUID NOT NULL,
@@ -83,9 +90,10 @@ CREATE TABLE group_members (
 
     CONSTRAINT uq_group_member UNIQUE (group_id, user_id)
 );
-///
 
-CREATE TABLE events (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL,
     group_id UUID,
@@ -105,9 +113,10 @@ CREATE TABLE events (
         FOREIGN KEY (group_id)
         REFERENCES groups (id)
 );
-///
 
-CREATE TABLE event_agenda (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS event_agenda (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL,
     title VARCHAR(150) NOT NULL,
@@ -119,9 +128,10 @@ CREATE TABLE event_agenda (
         FOREIGN KEY (event_id)
         REFERENCES events (id)
 );
-///
 
-CREATE TABLE event_registrations (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS event_registrations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL,
     user_id UUID NOT NULL,
@@ -138,9 +148,10 @@ CREATE TABLE event_registrations (
 
     CONSTRAINT uq_event_registration UNIQUE (event_id, user_id)
 );
-///
 
-CREATE TABLE event_staff (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS event_staff (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL,
     user_id UUID NOT NULL,
@@ -157,9 +168,10 @@ CREATE TABLE event_staff (
 
     CONSTRAINT uq_event_staff UNIQUE (event_id, user_id)
 );
-///
 
-CREATE TABLE attendance_logs (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS attendance_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     registration_id UUID NOT NULL,
     scanned_by UUID NOT NULL,
@@ -174,9 +186,10 @@ CREATE TABLE attendance_logs (
         FOREIGN KEY (scanned_by)
         REFERENCES users (id)
 );
-///
 
-CREATE TABLE notifications (
+---------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
     event_id UUID,
@@ -193,3 +206,8 @@ CREATE TABLE notifications (
         FOREIGN KEY (event_id)
         REFERENCES events (id)
 );
+
+-- insert role
+INSERT INTO roles (role_id, name, description) VALUES
+('user_role', 'User', 'Regular user with standard permissions'),
+('admin_role', 'Administrator', 'System administrator with full access');
