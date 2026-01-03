@@ -7,6 +7,7 @@ const {
   updatePassword,
   updateProfile,
   findById,
+  createUserProfile,
 } = require('../repository/userRepository');
 const {
   createResetToken,
@@ -26,10 +27,10 @@ const generateToken = (user) => {
 
 const register = async (req, res) => {
   try {
-    const { full_name, email, password, phone } = req.body;
+    const { first_name, last_name, email, password, contact } = req.body;
 
-    if (!full_name || !email || !password) {
-      return res.status(400).json({ message: 'full_name, email and password are required' });
+    if (!first_name || !last_name || !email || !password) {
+      return res.status(400).json({ message: 'first_name, last_name, email and password are required' });
     }
 
     const existing = await findByEmail(email);
@@ -39,13 +40,34 @@ const register = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     // Automatically set role_id to 'user_role' for all new registrations
-    const user = await createUser({ role_id: 'user_role', full_name, email, password: hashed, phone });
+    const user = await createUser({ 
+      role_id: 'user_role', 
+      first_name, 
+      last_name, 
+      email, 
+      password: hashed 
+    });
+
+    // Create user profile
+    await createUserProfile(user.id, {
+      first_name,
+      last_name,
+      email,
+      contact: contact || null,
+    });
+
     const token = generateToken(user);
 
     return res.status(201).json({
       message: 'User registered successfully',
       data: {
-        user: { id: user.id, full_name: user.full_name, email: user.email, role_id: user.role_id, phone: user.phone },
+        user: { 
+          id: user.id, 
+          first_name: user.first_name, 
+          last_name: user.last_name,
+          email: user.email, 
+          role_id: user.role_id 
+        },
         token,
       },
     });
@@ -67,6 +89,11 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Check if user is active
+    if (user.status !== 'ACTIVE') {
+      return res.status(403).json({ message: 'Account is not active' });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -76,7 +103,13 @@ const login = async (req, res) => {
     return res.json({
       message: 'Login successful',
       data: {
-        user: { id: user.id, full_name: user.full_name, email: user.email, role_id: user.role_id, phone: user.phone },
+        user: { 
+          id: user.id, 
+          first_name: user.first_name, 
+          last_name: user.last_name,
+          email: user.email, 
+          role_id: user.role_id 
+        },
         token,
       },
     });
@@ -160,7 +193,7 @@ const isTokenBlacklisted = (token) => tokenBlacklist.has(token);
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { full_name, email, phone } = req.body;
+    const { first_name, last_name, email } = req.body;
 
     // Check if email is being updated and if it's already in use by another user
     if (email) {
@@ -170,7 +203,7 @@ const updateUserProfile = async (req, res) => {
       }
     }
 
-    const updatedUser = await updateProfile(userId, { full_name, email, phone });
+    const updatedUser = await updateProfile(userId, { first_name, last_name, email });
 
     if (!updatedUser) {
       return res.status(404).json({ message: 'User not found' });
@@ -181,10 +214,10 @@ const updateUserProfile = async (req, res) => {
       data: {
         user: {
           id: updatedUser.id,
-          full_name: updatedUser.full_name,
+          first_name: updatedUser.first_name,
+          last_name: updatedUser.last_name,
           email: updatedUser.email,
           role_id: updatedUser.role_id,
-          phone: updatedUser.phone,
         },
       },
     });

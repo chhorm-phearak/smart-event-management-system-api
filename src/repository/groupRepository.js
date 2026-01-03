@@ -12,7 +12,7 @@ const createGroup = async ({ organization_id, name, description }) => {
 
 const findGroupById = async (groupId) => {
   const result = await db.query(
-    `SELECT g.*, o.name as organization_name, o.user_id as org_owner_id
+    `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
      WHERE g.id = $1`,
@@ -23,7 +23,7 @@ const findGroupById = async (groupId) => {
 
 const getAllGroupsByOrganization = async (organizationId) => {
   const result = await db.query(
-    `SELECT g.*, o.name as organization_name,
+    `SELECT g.*, o.org_name as organization_name,
      (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
@@ -92,9 +92,15 @@ const removeGroupMember = async (groupId, userId) => {
 
 const getGroupMembers = async (groupId) => {
   const result = await db.query(
-    `SELECT gm.*, u.full_name, u.email, u.phone
+    `SELECT gm.*, 
+            u.id as user_id,
+            u.first_name,
+            u.last_name,
+            u.email,
+            up.contact
      FROM group_members gm
      LEFT JOIN users u ON gm.user_id = u.id
+     LEFT JOIN user_profile up ON u.id = up.user_id
      WHERE gm.group_id = $1 AND u.is_deleted = FALSE
      ORDER BY gm.joined_at DESC`,
     [groupId]
@@ -112,7 +118,7 @@ const isGroupMember = async (groupId, userId) => {
 
 const getUserGroups = async (userId) => {
   const result = await db.query(
-    `SELECT g.*, o.name as organization_name, o.user_id as org_owner_id
+    `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON g.id = gm.group_id

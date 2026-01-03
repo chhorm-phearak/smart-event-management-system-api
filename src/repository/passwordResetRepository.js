@@ -1,21 +1,6 @@
 const db = require('../config/db');
 
-const ensureTable = async () => {
-  await db.query(
-    `CREATE TABLE IF NOT EXISTS password_resets (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      user_id UUID NOT NULL,
-      reset_token TEXT NOT NULL,
-      expires_at TIMESTAMP NOT NULL,
-      used BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users (id)
-    )`
-  );
-};
-
 const createResetToken = async (userId, resetToken, expiresAt) => {
-  await ensureTable();
   await db.query(
     `INSERT INTO password_resets (user_id, reset_token, expires_at)
      VALUES ($1, $2, $3)`,

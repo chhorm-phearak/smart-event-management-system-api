@@ -21,7 +21,7 @@ const createEvent = async ({
 
 const findEventById = async (eventId) => {
   const result = await db.query(
-    `SELECT e.*, o.name as organization_name
+    `SELECT e.*, o.org_name as organization_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
      WHERE e.id = $1`,
@@ -123,12 +123,34 @@ const addEventStaff = async (eventId, staffMembers) => {
 
   const staffResults = [];
   for (const member of staffMembers) {
+    // First, get or create organization_member_id
+    // Assuming member.organization_id and member.user_id are provided
+    const orgMemberResult = await db.query(
+      `SELECT id FROM organization_members 
+       WHERE organization_id = $1 AND user_id = $2`,
+      [member.organization_id, member.user_id]
+    );
+    
+    let orgMemberId;
+    if (orgMemberResult.rows.length === 0) {
+      // Create organization member if it doesn't exist
+      const createResult = await db.query(
+        `INSERT INTO organization_members (organization_id, user_id)
+         VALUES ($1, $2)
+         RETURNING id`,
+        [member.organization_id, member.user_id]
+      );
+      orgMemberId = createResult.rows[0].id;
+    } else {
+      orgMemberId = orgMemberResult.rows[0].id;
+    }
+
     const result = await db.query(
-      `INSERT INTO event_staff (event_id, user_id, role)
+      `INSERT INTO event_staff (event_id, organization_member_id, role)
        VALUES ($1, $2, $3)
-       ON CONFLICT (event_id, user_id) DO UPDATE SET role = $3
+       ON CONFLICT (event_id, organization_member_id) DO UPDATE SET role = $3
        RETURNING *`,
-      [eventId, member.user_id, member.role]
+      [eventId, orgMemberId, member.role]
     );
     staffResults.push(result.rows[0]);
   }
@@ -145,10 +167,16 @@ const getEventAgenda = async (eventId) => {
 
 const getEventStaff = async (eventId) => {
   const result = await db.query(
-    `SELECT es.*, u.full_name, u.email
+    `SELECT es.*, 
+            u.id as user_id,
+            u.first_name,
+            u.last_name,
+            u.email,
+            om.organization_id
      FROM event_staff es
-     LEFT JOIN users u ON es.user_id = u.id
-     WHERE es.event_id = $1`,
+     LEFT JOIN organization_members om ON es.organization_member_id = om.id
+     LEFT JOIN users u ON om.user_id = u.id
+     WHERE es.event_id = $1 AND (u.is_deleted = FALSE OR u.is_deleted IS NULL)`,
     [eventId]
   );
   return result.rows;
@@ -178,7 +206,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     countParams = [];
     
     dataQuery = `
-      SELECT e.*, o.name as organization_name, g.name as group_name
+      SELECT e.*, o.org_name as organization_name, g.name as group_name
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
@@ -198,7 +226,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     countParams = [userId];
     
     dataQuery = `
-      SELECT e.*, o.name as organization_name, g.name as group_name
+      SELECT e.*, o.org_name as organization_name, g.name as group_name
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
@@ -287,7 +315,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
 
   // Get paginated events
   const eventsResult = await db.query(
-    `SELECT e.*, o.name as organization_name, g.name as group_name
+    `SELECT e.*, o.org_name as organization_name, g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
      LEFT JOIN groups g ON e.group_id = g.id

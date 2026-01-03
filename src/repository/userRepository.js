@@ -8,12 +8,12 @@ const findByEmail = async (email) => {
   return result.rows[0];
 };
 
-const createUser = async ({ role_id, full_name, email, password, phone }) => {
+const createUser = async ({ role_id, first_name, last_name, email, password }) => {
   const result = await db.query(
-    `INSERT INTO users (role_id, full_name, email, password, phone)
+    `INSERT INTO users (role_id, first_name, last_name, email, password)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [role_id, full_name, email, password, phone]
+    [role_id, first_name, last_name, email, password]
   );
   return result.rows[0];
 };
@@ -33,22 +33,38 @@ const updatePassword = async (userId, hashedPassword) => {
   ]);
 };
 
-const updateProfile = async (userId, { full_name, email, phone }) => {
+const createUserProfile = async (userId, { first_name, last_name, email, contact }) => {
+  const result = await db.query(
+    `INSERT INTO user_profile (user_id, first_name, last_name, email, contact)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET
+       first_name = EXCLUDED.first_name,
+       last_name = EXCLUDED.last_name,
+       email = EXCLUDED.email,
+       contact = EXCLUDED.contact,
+       updated_at = NOW()
+     RETURNING *`,
+    [userId, first_name, last_name, email, contact]
+  );
+  return result.rows[0];
+};
+
+const updateProfile = async (userId, { first_name, last_name, email }) => {
   const updates = [];
   const values = [];
   let paramCount = 1;
 
-  if (full_name !== undefined) {
-    updates.push(`full_name = $${paramCount++}`);
-    values.push(full_name);
+  if (first_name !== undefined) {
+    updates.push(`first_name = $${paramCount++}`);
+    values.push(first_name);
+  }
+  if (last_name !== undefined) {
+    updates.push(`last_name = $${paramCount++}`);
+    values.push(last_name);
   }
   if (email !== undefined) {
     updates.push(`email = $${paramCount++}`);
     values.push(email);
-  }
-  if (phone !== undefined) {
-    updates.push(`phone = $${paramCount++}`);
-    values.push(phone);
   }
 
   if (updates.length === 0) {
@@ -57,7 +73,7 @@ const updateProfile = async (userId, { full_name, email, phone }) => {
   }
 
   values.push(userId);
-  const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount} AND is_deleted = FALSE RETURNING *`;
+  const query = `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} AND is_deleted = FALSE RETURNING *`;
   const result = await db.query(query, values);
   return result.rows[0];
 };
@@ -68,6 +84,7 @@ module.exports = {
   findById,
   updatePassword,
   updateProfile,
+  createUserProfile,
 };
 
 
