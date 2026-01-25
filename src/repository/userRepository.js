@@ -78,6 +78,32 @@ const updateProfile = async (userId, { first_name, last_name, email }) => {
   return result.rows[0];
 };
 
+const getUserProfile = async (userId) => {
+  const result = await db.query(
+    `SELECT 
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.email,
+      u.gender,
+      u.status,
+      u.role_id,
+      u.created_at,
+      u.updated_at,
+      up.img_url,
+      up.contact,
+      up.address,
+      up.date_of_birth,
+      up.created_at as profile_created_at,
+      up.updated_at as profile_updated_at
+    FROM users u
+    LEFT JOIN user_profile up ON u.id = up.user_id
+    WHERE u.id = $1 AND u.is_deleted = FALSE`,
+    [userId]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   findByEmail,
   createUser,
@@ -85,6 +111,7 @@ module.exports = {
   updatePassword,
   updateProfile,
   createUserProfile,
+  getUserProfile,
 };
 
 

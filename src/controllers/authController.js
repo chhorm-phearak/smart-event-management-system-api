@@ -8,6 +8,7 @@ const {
   updateProfile,
   findById,
   createUserProfile,
+  getUserProfile,
 } = require('../repository/userRepository');
 const {
   createResetToken,
@@ -136,7 +137,7 @@ const forgotPassword = async (req, res) => {
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 15); // 15 minutes
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 15 minutes
 
     await createResetToken(user.id, resetToken, expiresAt);
 
@@ -190,6 +191,41 @@ const logout = (req, res) => {
 
 const isTokenBlacklisted = (token) => tokenBlacklist.has(token);
 
+const getProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const profile = await getUserProfile(userId);
+
+    if (!profile) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    return res.json({
+      message: 'Profile retrieved successfully',
+      data: {
+        user: {
+          id: profile.id,
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          email: profile.email,
+          gender: profile.gender,
+          status: profile.status,
+          role_id: profile.role_id,
+          img_url: profile.img_url,
+          contact: profile.contact,
+          address: profile.address,
+          date_of_birth: profile.date_of_birth,
+          created_at: profile.created_at,
+          updated_at: profile.updated_at,
+        },
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -234,6 +270,7 @@ module.exports = {
   resetPassword,
   logout,
   isTokenBlacklisted,
+  getProfile,
   updateUserProfile,
 };
 

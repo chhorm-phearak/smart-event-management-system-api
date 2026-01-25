@@ -23,6 +23,22 @@ const authMiddleware = async (req, res, next) => {
     req.user = { id: user.id, email: user.email, role_id: user.role_id };
     next();
   } catch (err) {
+    // Check if token is expired
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        message: 'Token has expired',
+        error: 'TokenExpiredError',
+        expiredAt: err.expiredAt 
+      });
+    }
+    // Check if token is invalid
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        message: 'Invalid token',
+        error: 'JsonWebTokenError'
+      });
+    }
+    // Other errors
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
 };
