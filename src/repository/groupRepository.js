@@ -1,11 +1,11 @@
 const db = require('../config/db');
 
-const createGroup = async ({ organization_id, name, description }) => {
+const createGroup = async ({ organization_id, created_by, name, description }) => {
   const result = await db.query(
-    `INSERT INTO groups (organization_id, name, description)
-     VALUES ($1, $2, $3)
+    `INSERT INTO groups (organization_id, created_by, name, description)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [organization_id, name, description || null]
+    [organization_id, created_by, name, description || null]
   );
   return result.rows[0];
 };
@@ -59,14 +59,26 @@ const updateGroup = async (groupId, { name, description }) => {
 };
 
 const deleteGroup = async (groupId) => {
-  // First delete group members
   await db.query('DELETE FROM group_members WHERE group_id = $1', [groupId]);
-  
-  // Delete events associated with this group (or set group_id to null)
-  // For safety, we'll delete events that belong only to this group
-  await db.query('DELETE FROM events WHERE group_id = $1', [groupId]);
-  
-  // Then delete the group
+
+  // Delete events that belong to this group (and their dependent rows)
+  const eventsResult = await db.query('SELECT id FROM events WHERE group_id = $1', [groupId]);
+  for (const row of eventsResult.rows) {
+    const eventId = row.id;
+    await db.query(
+      `DELETE FROM attendance_logs
+       WHERE registration_id IN (SELECT id FROM event_registrations WHERE event_id = $1)`,
+      [eventId]
+    );
+    await db.query('DELETE FROM event_agenda WHERE event_id = $1', [eventId]);
+    await db.query('DELETE FROM event_staff WHERE event_id = $1', [eventId]);
+    await db.query('DELETE FROM event_feedback WHERE event_id = $1', [eventId]);
+    await db.query('DELETE FROM notifications WHERE event_id = $1', [eventId]);
+    await db.query('DELETE FROM event_images WHERE event_id = $1', [eventId]);
+    await db.query('DELETE FROM event_registrations WHERE event_id = $1', [eventId]);
+    await db.query('DELETE FROM events WHERE id = $1', [eventId]);
+  }
+
   const result = await db.query('DELETE FROM groups WHERE id = $1 RETURNING *', [groupId]);
   return result.rows[0];
 };

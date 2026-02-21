@@ -6,3 +6,6 @@ build/
 logs/
 *.log
 coverage/
+
+# Uploaded files (images, etc.) – not tracked in git
+uploads/

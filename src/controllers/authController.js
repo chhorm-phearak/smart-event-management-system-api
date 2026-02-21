@@ -15,6 +15,7 @@ const {
   findValidResetRecord,
   markUsed,
 } = require('../repository/passwordResetRepository');
+const { findOrganizationByUserId } = require('../repository/organizationRepository');
 
 // simple in-memory token blacklist for logout (per process)
 const tokenBlacklist = new Set();
@@ -101,15 +102,19 @@ const login = async (req, res) => {
     }
 
     const token = generateToken(user);
+    const organizations = await findOrganizationByUserId(user.id);
+    const organization_id = organizations?.length > 0 ? organizations[0].id : null;
+
     return res.json({
       message: 'Login successful',
       data: {
-        user: { 
-          id: user.id, 
-          first_name: user.first_name, 
+        user: {
+          id: user.id,
+          first_name: user.first_name,
           last_name: user.last_name,
-          email: user.email, 
-          role_id: user.role_id 
+          email: user.email,
+          role_id: user.role_id,
+          organization_id,
         },
         token,
       },

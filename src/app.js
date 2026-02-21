@@ -1,8 +1,11 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const authRoutes = require('./router/authRoutes');
 const eventRoutes = require('./router/eventRoutes');
 const groupRoutes = require('./router/groupRoutes');
+const organizationRoutes = require('./router/organizationRoutes');
+const uploadRoutes = require('./router/uploadRoutes');
 
 const app = express();
 
@@ -20,6 +23,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Root health check
 app.get('/', (req, res) => {
@@ -29,6 +33,23 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/organizations', organizationRoutes);
+app.use('/api/upload', uploadRoutes);
+
+app.use((err, _req, res, next) => {
+  if (err && err.name === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'Each image must be smaller than 5MB' });
+    }
+    return res.status(400).json({ message: err.message });
+  }
+
+  if (err && err.message === 'Only jpeg, png, and webp image uploads are allowed') {
+    return res.status(400).json({ message: err.message });
+  }
+
+  return next(err);
+});
 
 module.exports = app;
 

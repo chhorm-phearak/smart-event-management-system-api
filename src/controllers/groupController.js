@@ -61,6 +61,7 @@ const create = async (req, res) => {
     // Create the group
     const group = await createGroup({
       organization_id,
+      created_by: userId,
       name,
       description,
     });
