@@ -16,47 +16,30 @@ const {
   isOrganizationOwner,
 } = require('../repository/organizationRepository');
 const { findById } = require('../repository/userRepository');
+const { getGroupDetails, getGroupStats } = require('../services/groupService');
 
 const create = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userRole = req.user.role_id;
-    const { organization_id, name, description } = req.body;
+    const { name, description } = req.body;
 
     // Validate required fields
-    if (!organization_id || !name) {
+    if (!name) {
       return res.status(400).json({
-        message: 'organization_id and name are required',
+        message: 'name is required',
       });
     }
 
-    // Check if user has an organization (unless admin)
-    if (userRole !== 'admin_role') {
-      const userOrganizations = await findOrganizationByUserId(userId);
-      if (!userOrganizations || userOrganizations.length === 0) {
-        return res.status(403).json({
-          message: 'You must have an organization to create groups',
-        });
-      }
-    }
-
-    // Check if organization exists
-    const organization = await findOrganizationById(organization_id);
-    if (!organization) {
-      return res.status(404).json({
-        message: 'Organization not found',
+    // Get user's organization (user must be an organization owner to create groups)
+    const userOrganizations = await findOrganizationByUserId(userId);
+    if (!userOrganizations || userOrganizations.length === 0) {
+      return res.status(403).json({
+        message: 'You must have an organization to create groups',
       });
     }
 
-    // Check if user owns the organization (unless admin)
-    if (userRole !== 'admin_role') {
-      const isOwner = await isOrganizationOwner(organization_id, userId);
-      if (!isOwner) {
-        return res.status(403).json({
-          message: 'You do not have permission to create groups for this organization',
-        });
-      }
-    }
+    // Use the user's organization (first one if they have multiple)
+    const organization_id = userOrganizations[0].id;
 
     // Create the group
     const group = await createGroup({
@@ -92,26 +75,8 @@ const create = async (req, res) => {
 const getAll = async (req, res) => {
   try {
     const userId = req.user.id;
-    const userRole = req.user.role_id;
-    const { organization_id } = req.query;
-
-    let groups;
-
-    if (organization_id) {
-      // Get groups for specific organization
-      if (userRole !== 'admin_role') {
-        const isOwner = await isOrganizationOwner(organization_id, userId);
-        if (!isOwner) {
-          return res.status(403).json({
-            message: 'You do not have permission to view groups for this organization',
-          });
-        }
-      }
-      groups = await getAllGroupsByOrganization(organization_id);
-    } else {
-      // Get all groups user has access to (their groups or groups they're members of)
-      groups = await getUserGroups(userId);
-    }
+    // Get all groups user has access to (their groups or groups they're members of)
+    const groups = await getUserGroups(userId);
 
     return res.json({
       message: 'Groups retrieved successfully',
@@ -123,38 +88,50 @@ const getAll = async (req, res) => {
   }
 };
 
+const getOrganizationGroups = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const userOrganizations = await findOrganizationByUserId(userId);
+    if (!userOrganizations || userOrganizations.length === 0) {
+      return res.status(403).json({
+        message: 'You must have an organization to view organization groups',
+      });
+    }
+
+    const organization_id = userOrganizations[0].id;
+    const groups = await getAllGroupsByOrganization(organization_id);
+
+    return res.json({
+      message: 'Groups retrieved successfully',
+      data: { groups },
+    });
+  } catch (err) {
+    console.error('Error retrieving organization groups:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const getById = async (req, res) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role_id;
     const { id } = req.params;
 
-    const group = await findGroupById(id);
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // Check if user has access (admin, owner, or member)
-    if (userRole !== 'admin_role' && group.org_owner_id !== userId) {
-      const isMember = await isGroupMember(id, userId);
-      if (!isMember) {
-        return res.status(403).json({
-          message: 'You do not have permission to view this group',
-        });
-      }
-    }
-
-    const members = await getGroupMembers(id);
+    const groupDetails = await getGroupDetails(id, userId, userRole);
 
     return res.json({
-      message: 'Group retrieved successfully',
-      data: {
-        group,
-        members,
-      },
+      message: 'Group details retrieved successfully',
+      data: groupDetails,
     });
   } catch (err) {
-    console.error('Error retrieving group:', err);
+    console.error('Error retrieving group details:', err);
+    if (err.message === 'Group not found') {
+      return res.status(404).json({ message: err.message });
+    }
+    if (err.message === 'You do not have permission to view this group') {
+      return res.status(403).json({ message: err.message });
+    }
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -337,10 +314,36 @@ const removeMember = async (req, res) => {
   }
 };
 
+const getStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role_id;
+    const { id } = req.params;
+
+    const stats = await getGroupStats(id, userId, userRole);
+
+    return res.json({
+      message: 'Group stats retrieved successfully',
+      data: stats,
+    });
+  } catch (err) {
+    console.error('Error retrieving group stats:', err);
+    if (err.message === 'Group not found') {
+      return res.status(404).json({ message: err.message });
+    }
+    if (err.message === 'You do not have permission to view this group') {
+      return res.status(403).json({ message: err.message });
+    }
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   create,
   getAll,
   getById,
+  getOrganizationGroups,
+  getStats,
   update,
   remove,
   inviteMember,

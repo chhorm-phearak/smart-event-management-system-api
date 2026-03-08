@@ -6,6 +6,10 @@ const eventRoutes = require('./router/eventRoutes');
 const groupRoutes = require('./router/groupRoutes');
 const organizationRoutes = require('./router/organizationRoutes');
 const uploadRoutes = require('./router/uploadRoutes');
+const notificationRoutes = require('./router/notificationRoutes');
+const invitationRoutes = require('./router/invitationRoutes');
+const userRoutes = require('./router/userRoutes');
+const inviteLinkRoutes = require('./router/inviteLinkRoutes');
 
 const app = express();
 
@@ -35,6 +39,10 @@ app.use('/api/events', eventRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/invitations', invitationRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api', inviteLinkRoutes);
 
 app.use((err, _req, res, next) => {
   if (err && err.name === 'MulterError') {

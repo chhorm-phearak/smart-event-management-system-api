@@ -8,6 +8,14 @@ const findByEmail = async (email) => {
   return result.rows[0];
 };
 
+const findByUsername = async (username) => {
+  const result = await db.query(
+    'SELECT * FROM users WHERE username = $1 AND is_deleted = FALSE',
+    [username]
+  );
+  return result.rows[0];
+};
+
 const createUser = async ({ role_id, first_name, last_name, email, password }) => {
   const result = await db.query(
     `INSERT INTO users (role_id, first_name, last_name, email, password)
@@ -104,14 +112,59 @@ const getUserProfile = async (userId) => {
   return result.rows[0];
 };
 
+const listUsers = async ({ search, limit = 10, offset = 0 } = {}) => {
+  const values = [];
+  let whereClause = 'is_deleted = FALSE';
+
+  if (search) {
+    values.push(`%${search}%`);
+    whereClause += ` AND full_name ILIKE $${values.length}`;
+  }
+
+  values.push(limit);
+  values.push(offset);
+
+  const limitIndex = values.length - 1;
+  const offsetIndex = values.length;
+
+  const result = await db.query(
+    `SELECT id, full_name, first_name, last_name, email, status, role_id
+     FROM users
+     WHERE ${whereClause}
+     ORDER BY created_at DESC
+     LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+    values
+  );
+
+  return result.rows;
+};
+
+const searchUsersByEmail = async ({ email, limit = 10, offset = 0 } = {}) => {
+  if (!email || !email.trim()) {
+    return [];
+  }
+  const result = await db.query(
+    `SELECT id, full_name, first_name, last_name, email, status, role_id
+     FROM users
+     WHERE is_deleted = FALSE AND email ILIKE $1
+     ORDER BY created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [`%${email.trim()}%`, limit, offset]
+  );
+  return result.rows;
+};
+
 module.exports = {
   findByEmail,
+  findByUsername,
   createUser,
   findById,
   updatePassword,
   updateProfile,
   createUserProfile,
   getUserProfile,
+  listUsers,
+  searchUsersByEmail,
 };
 
 

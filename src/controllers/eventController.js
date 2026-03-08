@@ -14,11 +14,14 @@ const {
   deleteEventAgenda,
   deleteEventStaff,
   getAllEvents,
+  getAllRegisteredEvents,
   getAllEventsByGroup,
   addEventImage,
   getEventImages,
   findEventImageById,
   deleteEventImage,
+  findRegistrationByEventAndUser,
+  createEventRegistration,
 } = require('../repository/eventRepository');
 const {
   findOrganizationById,
@@ -510,6 +513,36 @@ const getAllByGroup = async (req, res) => {
   }
 };
 
+const getAllRegistered = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (page < 1) {
+      return res.status(400).json({
+        message: 'Page must be greater than 0',
+      });
+    }
+    if (limit < 1 || limit > 100) {
+      return res.status(400).json({
+        message: 'Limit must be between 1 and 100',
+      });
+    }
+
+    const result = await getAllRegisteredEvents(userId, page, limit);
+
+    return res.json({
+      message: 'Registered events retrieved successfully',
+      data: result,
+    });
+  } catch (err) {
+    console.error('Error retrieving registered events:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const uploadEventImage = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -771,12 +804,59 @@ const deleteStaff = async (req, res) => {
   }
 };
 
+/**
+ * Register the logged-in user for an event. Only event id (in URL) is required.
+ * Saves to event_registrations and generates a unique qr_code for the ticket.
+ */
+const registerForEvent = async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const userId = req.user?.id;
+
+    if (!eventId || !UUID_REGEX.test(eventId)) {
+      return res.status(400).json({ message: 'Valid event id is required' });
+    }
+    if (!userId || !UUID_REGEX.test(userId)) {
+      return res.status(401).json({ message: 'You must be logged in to register for an event' });
+    }
+
+    const event = await findEventById(eventId);
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    const existing = await findRegistrationByEventAndUser(eventId, userId);
+    if (existing) {
+      return res.status(409).json({
+        message: 'Already registered for this event',
+        registration: existing,
+      });
+    }
+
+    const registration = await createEventRegistration(eventId, userId);
+    return res.status(201).json({
+      message: 'Registered for event successfully',
+      registration: {
+        id: registration.id,
+        event_id: registration.event_id,
+        user_id: registration.user_id,
+        qr_code: registration.qr_code,
+        registered_at: registration.registered_at,
+      },
+    });
+  } catch (err) {
+    console.error('Error registering for event:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   create,
   update,
   remove,
   getById,
   getAll,
+  getAllRegistered,
   getAllByGroup,
   uploadEventImage,
   getImages,
@@ -786,5 +866,6 @@ module.exports = {
   createStaff,
   updateStaff,
   deleteStaff,
+  registerForEvent,
 };
 

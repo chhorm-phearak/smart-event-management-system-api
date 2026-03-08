@@ -5,6 +5,7 @@ const {
   remove,
   getById,
   getAll,
+  getAllRegistered,
   getAllByGroup,
   uploadEventImage,
   getImages,
@@ -14,6 +15,7 @@ const {
   createStaff,
   updateStaff,
   deleteStaff,
+  registerForEvent,
 } = require('../controllers/eventController');
 const {
   getAll: getAgendaList,
@@ -28,11 +30,14 @@ const router = express.Router();
 
 // All event routes require authentication
 router.get('/', authMiddleware, getAll);
+router.get('/registered', authMiddleware, getAllRegistered);
 router.get('/group/:group_id', authMiddleware, getAllByGroup);
 router.post('/', authMiddleware, create);
 router.get('/:id', authMiddleware, getById);
 router.put('/:id', authMiddleware, update);
 router.delete('/:id', authMiddleware, remove);
+// Register logged-in user for event (no body needed)
+router.post('/:id/register', authMiddleware, registerForEvent);
 // Event images
 router.get('/:id/images', authMiddleware, getImages);
 router.post('/:id/images', authMiddleware, uploadEventImage);
