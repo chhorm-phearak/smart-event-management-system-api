@@ -3,6 +3,7 @@ const { findGroupById, addGroupMember, isGroupMember } = require('../repository/
 const { findOrganizationById, isOrganizationOwner } = require('../repository/organizationRepository');
 const notificationService = require('./notificationService');
 const { findById } = require('../repository/userRepository');
+const db = require('../config/db');
 
 /**
  * Check if an organization owns a group
@@ -238,15 +239,53 @@ const getInviteLinkInfo = async (token) => {
     expired_date: inviteLink.expires_at,
     number_of_uses: inviteLink.current_uses,
     max_uses: inviteLink.max_uses,
-    message: inviteLink.message,
-    group_info: {
-      id: inviteLink.group_id,
-      name: inviteLink.group_name,
-      description: inviteLink.group_description,
-      organization_name: inviteLink.organization_name,
-      organization_id: inviteLink.organization_id
-    }
+    message: inviteLink.message
   };
+};
+
+/**
+ * Get latest invite link information for all groups in an organization
+ */
+const getOrganizationLatestInviteLinks = async (organizationId) => {
+  // Get all groups for the organization
+  const groupsResult = await db.query(
+    `SELECT id, name, description 
+     FROM groups 
+     WHERE organization_id = $1`,
+    [organizationId]
+  );
+
+  const groups = groupsResult.rows;
+  const latestLinks = [];
+
+  for (const group of groups) {
+    // Get the latest invite link for this group
+    const linkResult = await db.query(
+      `SELECT il.token, il.expires_at, il.current_uses, il.max_uses, il.message, il.created_at
+       FROM invite_links il
+       WHERE il.group_id = $1
+       ORDER BY il.created_at DESC
+       LIMIT 1`,
+      [group.id]
+    );
+
+    if (linkResult.rows.length > 0) {
+      const link = linkResult.rows[0];
+      latestLinks.push({
+        group_id: group.id,
+        group_name: group.name,
+        group_description: group.description,
+        invite_link: link.token,
+        expired_date: link.expires_at,
+        number_of_uses: link.current_uses,
+        max_uses: link.max_uses,
+        message: link.message,
+        created_at: link.created_at
+      });
+    }
+  }
+
+  return latestLinks;
 };
 
 /**
@@ -264,5 +303,6 @@ module.exports = {
   updateInviteLink,
   deleteInviteLink,
   getInviteLinkInfo,
+  getOrganizationLatestInviteLinks,
   generateInviteUrl
 };

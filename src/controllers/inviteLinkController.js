@@ -217,6 +217,42 @@ const getInviteInfo = async (req, res) => {
   }
 };
 
+const getOrganizationLatestLinks = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Get user's organization
+    const userOrganizations = await findOrganizationByUserId(userId);
+    if (!userOrganizations || userOrganizations.length === 0) {
+      return res.status(403).json({
+        message: 'You must have an organization to view invite links',
+      });
+    }
+
+    const organizationId = userOrganizations[0].id;
+
+    const latestLinks = await inviteLinkService.getOrganizationLatestInviteLinks(organizationId);
+
+    // Add full URLs to each link
+    const baseUrl = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
+    const linksWithUrls = latestLinks.map(link => ({
+      ...link,
+      invite_url: inviteLinkService.generateInviteUrl(link.invite_link, baseUrl)
+    }));
+
+    return res.json({
+      message: 'Latest invite links retrieved successfully',
+      data: {
+        invite_links: linksWithUrls,
+        total: linksWithUrls.length
+      }
+    });
+  } catch (err) {
+    console.error('Error retrieving organization latest invite links:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   create,
   getGroupLinks,
@@ -224,5 +260,6 @@ module.exports = {
   accept,
   update,
   remove,
-  getInviteInfo
+  getInviteInfo,
+  getOrganizationLatestLinks
 };

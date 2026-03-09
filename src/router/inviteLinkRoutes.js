@@ -23,4 +23,7 @@ router.get('/invite/info/:token', inviteLinkController.getInviteInfo);
 // Protected route for accepting invite (requires auth)
 router.post('/invite/accept/:token', inviteLinkController.accept);
 
+// Protected route for getting organization's latest invite links
+router.get('/organization/latest-invite-links', inviteLinkController.getOrganizationLatestLinks);
+
 module.exports = router;
