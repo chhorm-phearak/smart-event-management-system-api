@@ -5,6 +5,7 @@ const {
   remove,
   getById,
   getAll,
+  getManagedSummary,
   getAllRegistered,
   getAllByGroup,
   uploadEventImage,
@@ -16,6 +17,9 @@ const {
   updateStaff,
   deleteStaff,
   registerForEvent,
+  processCheckIn,
+  getQRCodeImage,
+  checkInByRegistration,
 } = require('../controllers/eventController');
 const {
   getAll: getAgendaList,
@@ -30,6 +34,7 @@ const router = express.Router();
 
 // All event routes require authentication
 router.get('/', authMiddleware, getAll);
+router.get('/managed/summary', authMiddleware, getManagedSummary);
 router.get('/registered', authMiddleware, getAllRegistered);
 router.get('/group/:group_id', authMiddleware, getAllByGroup);
 router.post('/', authMiddleware, create);
@@ -54,6 +59,11 @@ router.get('/:id/staff/:staffId', authMiddleware, getStaffById);
 router.post('/:id/staff', authMiddleware, createStaff);
 router.put('/:id/staff/:staffId', authMiddleware, updateStaff);
 router.delete('/:id/staff/:staffId', authMiddleware, deleteStaff);
+
+// QR Code and Check-in routes
+router.post('/checkin', authMiddleware, processCheckIn);
+router.post('/checkin/:registration_id', authMiddleware, checkInByRegistration);
+router.get('/qr/:registration_id', authMiddleware, getQRCodeImage);
 
 module.exports = router;
 

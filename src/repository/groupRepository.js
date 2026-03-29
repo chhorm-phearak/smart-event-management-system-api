@@ -1,11 +1,11 @@
 const db = require('../config/db');
 
-const createGroup = async ({ organization_id, created_by, name, description }) => {
+const createGroup = async ({ organization_id, created_by, name, description, image_url }) => {
   const result = await db.query(
-    `INSERT INTO groups (organization_id, created_by, name, description)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO groups (organization_id, created_by, name, description, image_url)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [organization_id, created_by, name, description || null]
+    [organization_id, created_by, name, description || null, image_url || null]
   );
   return result.rows[0];
 };
@@ -34,7 +34,7 @@ const getAllGroupsByOrganization = async (organizationId) => {
   return result.rows;
 };
 
-const updateGroup = async (groupId, { name, description }) => {
+const updateGroup = async (groupId, { name, description, image_url }) => {
   const updates = [];
   const values = [];
   let paramCount = 1;
@@ -46,6 +46,10 @@ const updateGroup = async (groupId, { name, description }) => {
   if (description !== undefined) {
     updates.push(`description = $${paramCount++}`);
     values.push(description);
+  }
+  if (image_url !== undefined) {
+    updates.push(`image_url = $${paramCount++}`);
+    values.push(image_url);
   }
 
   if (updates.length === 0) {

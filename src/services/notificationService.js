@@ -1,17 +1,36 @@
 const notificationRepository = require('../repository/notificationRepository');
+const { emitToUser, emitToOrganization, emitToEvent, emitToGroup } = require('../config/socket');
 
 /**
  * Create a single notification (used internally or by other services).
+ * Automatically emits real-time notification to the user.
  */
 const createNotification = async (payload) => {
-  return notificationRepository.create(payload);
+  const notification = await notificationRepository.create(payload);
+  
+  // Emit real-time notification to the user
+  if (notification && notification.user_id) {
+    emitToUser(notification.user_id, 'notification', notification);
+  }
+  
+  return notification;
 };
 
 /**
  * Create multiple notifications in one go (e.g. event update to many users).
+ * Automatically emits real-time notifications to each user.
  */
 const createNotifications = async (payloads) => {
-  return notificationRepository.createMany(payloads);
+  const notifications = await notificationRepository.createMany(payloads);
+  
+  // Emit real-time notification to each user
+  for (const notification of notifications) {
+    if (notification && notification.user_id) {
+      emitToUser(notification.user_id, 'notification', notification);
+    }
+  }
+  
+  return notifications;
 };
 
 /**

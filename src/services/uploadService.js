@@ -8,6 +8,21 @@ const getPublicUrl = (filePath) => {
 };
 
 /**
+ * Build full URL with host for API responses
+ * @param {string} filePath - The file path
+ * @param {string} host - The host (e.g., http://localhost:3000)
+ * @returns {string} Full URL with host
+ */
+const getFullUrl = (filePath, host = null) => {
+  const publicUrl = getPublicUrl(filePath);
+  if (!host) {
+    // Default to localhost:3000 if no host provided
+    host = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+  }
+  return `${host}${publicUrl}`;
+};
+
+/**
  * Build response for a single uploaded file (from multer req.file).
  * @param {Express.Multer.File} file - req.file from multer
  * @returns {{ filename: string, path: string, url: string, size: number, mimetype: string } | null}
@@ -38,4 +53,5 @@ module.exports = {
   uploadSingleFile,
   uploadMultipleFiles,
   getPublicUrl,
+  getFullUrl,
 };

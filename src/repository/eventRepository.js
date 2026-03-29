@@ -1,5 +1,8 @@
 const db = require('../config/db');
 const crypto = require('crypto');
+const QRCode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
 
 const createEvent = async ({
   organization_id,
@@ -68,7 +71,8 @@ const findEventById = async (eventId) => {
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
      LEFT JOIN groups g ON e.group_id = g.id
-     WHERE e.id = $1`,
+     WHERE e.id = $1
+       AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [eventId]
   );
   return result.rows[0];
@@ -456,6 +460,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     countQuery = `
       SELECT COUNT(*) as total
       FROM events e
+      WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
     `;
     countParams = [];
     
@@ -464,6 +469,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
+      WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
       ORDER BY e.created_at DESC
       LIMIT $1 OFFSET $2
     `;
@@ -473,9 +479,10 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     countQuery = `
       SELECT COUNT(*) as total
       FROM events e
-      WHERE e.organization_id IN (
-        SELECT id FROM organizations WHERE user_id = $1
-      ) OR e.is_public = TRUE
+      WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND (e.organization_id IN (
+          SELECT id FROM organizations WHERE user_id = $1
+        ) OR e.is_public = TRUE)
     `;
     countParams = [userId];
     
@@ -484,9 +491,10 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
-      WHERE e.organization_id IN (
-        SELECT id FROM organizations WHERE user_id = $1
-      ) OR e.is_public = TRUE
+      WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND (e.organization_id IN (
+          SELECT id FROM organizations WHERE user_id = $1
+        ) OR e.is_public = TRUE)
       ORDER BY e.created_at DESC
       LIMIT $2 OFFSET $3
     `;
@@ -501,16 +509,22 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
   const eventsResult = await db.query(dataQuery, dataParams);
   const events = eventsResult.rows;
 
-  // Get current user's registration qr_codes for these events (if any)
+  // Get current user's registration data for these events (if any)
   let registrationMap = {};
   if (events.length > 0 && userId) {
     const eventIds = events.map((e) => e.id);
+    console.log('Fetching QR codes for userId:', userId);
+    console.log('Event IDs:', eventIds);
     const regResult = await db.query(
-      `SELECT event_id, qr_code FROM event_registrations WHERE user_id = $1 AND event_id = ANY($2::uuid[])`,
+      `SELECT event_id, id as registration_id, qr_image_path FROM event_registrations WHERE user_id = $1 AND event_id = ANY($2::uuid[])`,
       [userId, eventIds]
     );
+    console.log('Registration results:', regResult.rows);
     regResult.rows.forEach((row) => {
-      registrationMap[row.event_id] = row.qr_code;
+      registrationMap[row.event_id] = {
+        registration_id: row.registration_id,
+        qr_image_path: row.qr_image_path
+      };
     });
   }
 
@@ -523,14 +537,148 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
         getEventImages(event.id),
       ]);
 
-      const qrcode = registrationMap[event.id] ?? '';
+      const registrationData = registrationMap[event.id] ?? null;
 
       return {
         ...event,
         agenda,
         staff,
         images,
-        qrcode,
+        qr_ticket: registrationData ? registrationData.registration_id : null,
+        qr_image_url: registrationData ? registrationData.qr_image_path : null,
+      };
+    })
+  );
+
+  return {
+    events: eventsWithDetails,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};
+
+const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) => {
+  const offset = (page - 1) * limit;
+  const whereConditions = ['(e.is_deleted = FALSE OR e.is_deleted IS NULL)'];
+  const params = [];
+
+  if (userRole !== 'admin_role') {
+    params.push(userId);
+    whereConditions.push(`e.organization_id IN (
+      SELECT id FROM organizations WHERE user_id = $${params.length}
+    )`);
+  }
+
+  const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM events e
+    ${whereClause}
+  `;
+  const countResult = await db.query(countQuery, params);
+  const total = parseInt(countResult.rows[0].total);
+
+  const limitIndex = params.length + 1;
+  const offsetIndex = params.length + 2;
+
+  const dataQuery = `
+    SELECT
+      e.id,
+      e.organization_id,
+      e.group_id,
+      e.created_by,
+      e.title,
+      e.short_description,
+      e.long_description,
+      e.category,
+      e.start_time,
+      e.end_time,
+      e.duration,
+      e.capacity,
+      e.location,
+      e.full_address,
+      e.status,
+      e.is_public,
+      e.created_at,
+      e.updated_at,
+      o.org_name AS organization_name,
+      g.name AS group_name,
+      COALESCE(regs.registered_count, 0) AS registered_count,
+      COALESCE(staff.staff_count, 0) AS staff_count,
+      img.image_url AS primary_image_url
+    FROM events e
+    LEFT JOIN organizations o ON e.organization_id = o.id
+    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN (
+      SELECT event_id, COUNT(*)::int AS registered_count
+      FROM event_registrations
+      GROUP BY event_id
+    ) regs ON regs.event_id = e.id
+    LEFT JOIN (
+      SELECT event_id, COUNT(*)::int AS staff_count
+      FROM event_staff
+      GROUP BY event_id
+    ) staff ON staff.event_id = e.id
+    LEFT JOIN LATERAL (
+      SELECT image_url
+      FROM event_images
+      WHERE event_id = e.id
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) img ON TRUE
+    ${whereClause}
+    ORDER BY e.start_time DESC NULLS LAST, e.created_at DESC
+    LIMIT $${limitIndex} OFFSET $${offsetIndex}
+  `;
+
+  const dataParams = [...params, limit, offset];
+  const dataResult = await db.query(dataQuery, dataParams);
+  const events = dataResult.rows;
+
+  // Map current user's registrations for quick lookup (for QR ticket access)
+  let registrationMap = {};
+  if (events.length > 0 && userId) {
+    const eventIds = events.map((event) => event.id);
+    const regResult = await db.query(
+      `SELECT event_id, id as registration_id, qr_image_path
+       FROM event_registrations
+       WHERE user_id = $1 AND event_id = ANY($2::uuid[])`,
+      [userId, eventIds]
+    );
+    regResult.rows.forEach((row) => {
+      registrationMap[row.event_id] = {
+        registration_id: row.registration_id,
+        qr_image_path: row.qr_image_path,
+      };
+    });
+  }
+
+  const eventsWithDetails = await Promise.all(
+    events.map(async (event) => {
+      const [agenda, staff, images] = await Promise.all([
+        getEventAgenda(event.id),
+        getEventStaff(event.id),
+        getEventImages(event.id),
+      ]);
+
+      const registrationData = registrationMap[event.id] ?? null;
+      const registrationProgress = event.capacity && event.capacity > 0
+        ? Math.min(100, Math.round((event.registered_count / event.capacity) * 100))
+        : null;
+
+      return {
+        ...event,
+        agenda,
+        staff,
+        images,
+        qr_ticket: registrationData ? registrationData.registration_id : null,
+        qr_image_url: registrationData ? registrationData.qr_image_path : null,
+        registration_progress: registrationProgress,
       };
     })
   );
@@ -552,7 +700,9 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
   const countResult = await db.query(
     `SELECT COUNT(*) as total
      FROM event_registrations er
-     WHERE er.user_id = $1`,
+     INNER JOIN events e ON er.event_id = e.id
+     WHERE er.user_id = $1
+       AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [userId]
   );
   const total = parseInt(countResult.rows[0].total);
@@ -562,12 +712,14 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
       e.*,
       o.org_name as organization_name,
       g.name as group_name,
-      er.qr_code
+      er.id as registration_id,
+      er.qr_image_path
      FROM event_registrations er
      INNER JOIN events e ON er.event_id = e.id
      LEFT JOIN organizations o ON e.organization_id = o.id
      LEFT JOIN groups g ON e.group_id = g.id
      WHERE er.user_id = $1
+       AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY er.registered_at DESC
      LIMIT $2 OFFSET $3`,
     [userId, limit, offset]
@@ -577,7 +729,7 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
 
   const eventsWithDetails = await Promise.all(
     events.map(async (event) => {
-      const { qr_code, ...eventData } = event;
+      const { qr_image_path, registration_id, ...eventData } = event;
       const [agenda, staff, images] = await Promise.all([
         getEventAgenda(event.id),
         getEventStaff(event.id),
@@ -589,7 +741,8 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
         agenda,
         staff,
         images,
-        qrcode: qr_code || '',
+        qr_ticket: registration_id,
+        qr_image_url: qr_image_path || '',
       };
     })
   );
@@ -639,7 +792,8 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
   const countResult = await db.query(
     `SELECT COUNT(*) as total
      FROM events e
-     WHERE e.group_id = $1`,
+     WHERE e.group_id = $1
+       AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [groupId]
   );
   const total = parseInt(countResult.rows[0].total);
@@ -651,6 +805,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
      LEFT JOIN organizations o ON e.organization_id = o.id
      LEFT JOIN groups g ON e.group_id = g.id
      WHERE e.group_id = $1
+       AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY e.created_at DESC
      LIMIT $2 OFFSET $3`,
     [groupId, limit, offset]
@@ -697,14 +852,105 @@ const findRegistrationByEventAndUser = async (eventId, userId) => {
 };
 
 const createEventRegistration = async (eventId, userId) => {
-  const qrCode = crypto.randomBytes(24).toString('base64url');
+  const registrationId = crypto.randomUUID();
+  const qrData = JSON.stringify({
+    registration_id: registrationId,
+    event_id: eventId,
+    user_id: userId
+  });
+  
+  // Create QR code directory if it doesn't exist
+  const qrDir = path.join(__dirname, '../../public/qr-codes');
+  if (!fs.existsSync(qrDir)) {
+    fs.mkdirSync(qrDir, { recursive: true });
+  }
+  
+  // Generate QR code image file
+  const fileName = `qr-${registrationId}.png`;
+  const filePath = path.join(qrDir, fileName);
+  const qrImagePath = `/qr-codes/${fileName}`;
+  
+  await QRCode.toFile(filePath, qrData);
+  
   const result = await db.query(
-    `INSERT INTO event_registrations (event_id, user_id, qr_code)
-     VALUES ($1, $2, $3)
+    `INSERT INTO event_registrations (id, event_id, user_id, qr_code, qr_image_path)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [eventId, userId, qrCode]
+    [registrationId, eventId, userId, qrData, qrImagePath]
   );
   return result.rows[0];
+};
+
+const findRegistrationById = async (registrationId) => {
+  const result = await db.query(
+    `SELECT er.*, e.title as event_title, u.first_name, u.last_name, u.email
+     FROM event_registrations er
+     JOIN events e ON er.event_id = e.id
+     JOIN users u ON er.user_id = u.id
+     WHERE er.id = $1`,
+    [registrationId]
+  );
+  return result.rows[0];
+};
+
+const createAttendanceLog = async (registrationId, scannedBy) => {
+  const result = await db.query(
+    `INSERT INTO attendance_logs (registration_id, scanned_by, status)
+     VALUES ($1, $2, 'CHECKED_IN')
+     RETURNING *`,
+    [registrationId, scannedBy]
+  );
+  return result.rows[0];
+};
+
+const findAttendanceByRegistration = async (registrationId) => {
+  const result = await db.query(
+    `SELECT * FROM attendance_logs WHERE registration_id = $1`,
+    [registrationId]
+  );
+  return result.rows[0];
+};
+
+const updateRegistrationStatus = async (registrationId, status) => {
+  const result = await db.query(
+    `UPDATE event_registrations
+     SET status = $2
+     WHERE id = $1
+     RETURNING *`,
+    [registrationId, status]
+  );
+  return result.rows[0];
+};
+
+const checkInByRegistrationId = async (registrationId, scannedBy) => {
+  // Find registration with full details
+  const registration = await findRegistrationById(registrationId);
+  if (!registration) {
+    return { success: false, error: 'Registration not found' };
+  }
+
+  // Check if already checked in
+  const existingAttendance = await findAttendanceByRegistration(registrationId);
+  if (existingAttendance) {
+    return {
+      success: false,
+      error: 'Already checked in',
+      attendance: existingAttendance,
+      registration
+    };
+  }
+
+  // Create attendance log
+  const attendance = await createAttendanceLog(registrationId, scannedBy);
+  
+  // Update registration status to CHECKED_IN
+  await updateRegistrationStatus(registrationId, 'CHECKED_IN');
+
+  return {
+    success: true,
+    attendance,
+    registration
+  };
 };
 
 module.exports = {
@@ -731,9 +977,15 @@ module.exports = {
   deleteEventAgenda,
   deleteEventStaff,
   getAllEvents,
+  getManagedEventsSummary,
   getAllRegisteredEvents,
   getAllEventsByGroup,
   findRegistrationByEventAndUser,
   createEventRegistration,
+  findRegistrationById,
+  createAttendanceLog,
+  findAttendanceByRegistration,
+  updateRegistrationStatus,
+  checkInByRegistrationId,
 };
 

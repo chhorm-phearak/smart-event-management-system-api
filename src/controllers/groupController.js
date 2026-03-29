@@ -17,11 +17,12 @@ const {
 } = require('../repository/organizationRepository');
 const { findById } = require('../repository/userRepository');
 const { getGroupDetails, getGroupStats } = require('../services/groupService');
+const { getFullUrl } = require('../services/uploadService');
 
 const create = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, description } = req.body;
+    const { name, description, image_url } = req.body;
 
     // Validate required fields
     if (!name) {
@@ -47,11 +48,18 @@ const create = async (req, res) => {
       created_by: userId,
       name,
       description,
+      image_url,
     });
+
+    // Format image URL in response
+    const formattedGroup = {
+      ...group,
+      image_url: group.image_url ? getFullUrl(group.image_url) : null,
+    };
 
     return res.status(201).json({
       message: 'Group created successfully',
-      data: { group },
+      data: { group: formattedGroup },
     });
   } catch (err) {
     console.error('Error creating group:', err);
@@ -78,9 +86,15 @@ const getAll = async (req, res) => {
     // Get all groups user has access to (their groups or groups they're members of)
     const groups = await getUserGroups(userId);
 
+    // Format image URLs for each group
+    const formattedGroups = groups.map(group => ({
+      ...group,
+      image_url: group.image_url ? getFullUrl(group.image_url) : null,
+    }));
+
     return res.json({
       message: 'Groups retrieved successfully',
-      data: { groups },
+      data: { groups: formattedGroups },
     });
   } catch (err) {
     console.error('Error retrieving groups:', err);
@@ -102,9 +116,15 @@ const getOrganizationGroups = async (req, res) => {
     const organization_id = userOrganizations[0].id;
     const groups = await getAllGroupsByOrganization(organization_id);
 
+    // Format image URLs for each group
+    const formattedGroups = groups.map(group => ({
+      ...group,
+      image_url: group.image_url ? getFullUrl(group.image_url) : null,
+    }));
+
     return res.json({
       message: 'Groups retrieved successfully',
-      data: { groups },
+      data: { groups: formattedGroups },
     });
   } catch (err) {
     console.error('Error retrieving organization groups:', err);
@@ -141,7 +161,7 @@ const update = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role_id;
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, image_url } = req.body;
 
     const group = await findGroupById(id);
     if (!group) {
@@ -158,11 +178,17 @@ const update = async (req, res) => {
       }
     }
 
-    const updatedGroup = await updateGroup(id, { name, description });
+    const updatedGroup = await updateGroup(id, { name, description, image_url });
+
+    // Format image URL in response
+    const formattedGroup = {
+      ...updatedGroup,
+      image_url: updatedGroup.image_url ? getFullUrl(updatedGroup.image_url) : null,
+    };
 
     return res.json({
       message: 'Group updated successfully',
-      data: { group: updatedGroup },
+      data: { group: formattedGroup },
     });
   } catch (err) {
     console.error('Error updating group:', err);

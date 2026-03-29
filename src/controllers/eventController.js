@@ -14,6 +14,7 @@ const {
   deleteEventAgenda,
   deleteEventStaff,
   getAllEvents,
+  getManagedEventsSummary,
   getAllRegisteredEvents,
   getAllEventsByGroup,
   addEventImage,
@@ -22,6 +23,10 @@ const {
   deleteEventImage,
   findRegistrationByEventAndUser,
   createEventRegistration,
+  findRegistrationById,
+  createAttendanceLog,
+  findAttendanceByRegistration,
+  checkInByRegistrationId,
 } = require('../repository/eventRepository');
 const {
   findOrganizationById,
@@ -29,6 +34,7 @@ const {
   isOrganizationOwner,
 } = require('../repository/organizationRepository');
 const { findGroupById, isGroupMember } = require('../repository/groupRepository');
+const QRCode = require('qrcode');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -189,6 +195,67 @@ const create = async (req, res) => {
       });
     }
 
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const getManagedSummary = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role_id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (page < 1) {
+      return res.status(400).json({
+        message: 'Page must be greater than 0',
+      });
+    }
+    if (limit < 1 || limit > 100) {
+      return res.status(400).json({
+        message: 'Limit must be between 1 and 100',
+      });
+    }
+
+    const result = await getManagedEventsSummary(userId, userRole, page, limit);
+
+    return res.json({
+      message: 'Managed events retrieved successfully',
+      data: result,
+    });
+  } catch (err) {
+    console.error('Error retrieving managed events:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const getAll = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role_id;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (page < 1) {
+      return res.status(400).json({
+        message: 'Page must be greater than 0',
+      });
+    }
+    if (limit < 1 || limit > 100) {
+      return res.status(400).json({
+        message: 'Limit must be between 1 and 100',
+      });
+    }
+
+    const result = await getAllEvents(null, userId, userRole, page, limit);
+
+    return res.json({
+      message: 'Events retrieved successfully',
+      data: result,
+    });
+  } catch (err) {
+    console.error('Error retrieving events:', err);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -440,39 +507,6 @@ const getById = async (req, res) => {
   }
 };
 
-const getAll = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const userRole = req.user.role_id;
-    
-    // Get pagination parameters from query string
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-
-    // Validate pagination parameters
-    if (page < 1) {
-      return res.status(400).json({
-        message: 'Page must be greater than 0',
-      });
-    }
-    if (limit < 1 || limit > 100) {
-      return res.status(400).json({
-        message: 'Limit must be between 1 and 100',
-      });
-    }
-
-    const result = await getAllEvents(null, userId, userRole, page, limit);
-
-    return res.json({
-      message: 'Events retrieved successfully',
-      data: result,
-    });
-  } catch (err) {
-    console.error('Error retrieving events:', err);
-    return res.status(500).json({ message: 'Internal server error' });
-  }
-};
-
 const getAllByGroup = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -495,13 +529,6 @@ const getAllByGroup = async (req, res) => {
       });
     }
 
-    const result = await getAllEventsByGroup(group_id, userId, userRole, page, limit);
-
-    if (result === null) {
-      return res.status(403).json({
-        message: 'You do not have permission to view events for this group',
-      });
-    }
 
     return res.json({
       message: 'Group events retrieved successfully',
@@ -827,25 +854,199 @@ const registerForEvent = async (req, res) => {
 
     const existing = await findRegistrationByEventAndUser(eventId, userId);
     if (existing) {
-      return res.status(409).json({
+      return res.status(200).json({
         message: 'Already registered for this event',
-        registration: existing,
+        registration: {
+          id: existing.id,
+          event_id: existing.event_id,
+          user_id: existing.user_id,
+          qr_image_url: existing.qr_image_path,
+          registered_at: existing.registered_at,
+        },
       });
     }
 
     const registration = await createEventRegistration(eventId, userId);
+    
     return res.status(201).json({
       message: 'Registered for event successfully',
       registration: {
         id: registration.id,
         event_id: registration.event_id,
         user_id: registration.user_id,
-        qr_code: registration.qr_code,
+        qr_image_url: registration.qr_image_path,
         registered_at: registration.registered_at,
       },
     });
   } catch (err) {
     console.error('Error registering for event:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/**
+ * Process QR code scan for event check-in
+ */
+const processCheckIn = async (req, res) => {
+  try {
+    const { qr_data } = req.body;
+    const scannedBy = req.user?.id;
+
+    if (!qr_data) {
+      return res.status(400).json({ message: 'QR data is required' });
+    }
+    if (!scannedBy || !UUID_REGEX.test(scannedBy)) {
+      return res.status(401).json({ message: 'You must be logged in to process check-in' });
+    }
+
+    // Parse QR data
+    let qrData;
+    try {
+      qrData = JSON.parse(qr_data);
+    } catch (err) {
+      return res.status(400).json({ message: 'Invalid QR code format' });
+    }
+
+    // Validate QR data structure
+    if (!qrData.registration_id || !qrData.event_id || !qrData.user_id) {
+      return res.status(400).json({ message: 'Invalid QR code data structure' });
+    }
+
+    // Find registration
+    const registration = await findRegistrationById(qrData.registration_id);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    // Verify QR data matches registration
+    if (registration.event_id !== qrData.event_id || registration.user_id !== qrData.user_id) {
+      return res.status(400).json({ message: 'QR code data does not match registration' });
+    }
+
+    // Check if already checked in
+    const existingAttendance = await findAttendanceByRegistration(qrData.registration_id);
+    if (existingAttendance) {
+      if (registration.status !== 'CHECKED_IN') {
+        await updateRegistrationStatus(registration.id, 'CHECKED_IN');
+      }
+      return res.status(200).json({
+        message: 'Already checked in',
+        attendance: existingAttendance,
+        registration: {
+          id: registration.id,
+          event_title: registration.event_title,
+          user_name: `${registration.first_name} ${registration.last_name}`,
+          email: registration.email,
+          checked_in_at: existingAttendance.scanned_at,
+        },
+      });
+    }
+
+    // Create attendance log
+    const attendance = await createAttendanceLog(qrData.registration_id, scannedBy);
+    await updateRegistrationStatus(registration.id, 'CHECKED_IN');
+
+    return res.status(201).json({
+      message: 'Check-in successful',
+      attendance,
+      registration: {
+        id: registration.id,
+        event_title: registration.event_title,
+        user_name: `${registration.first_name} ${registration.last_name}`,
+        email: registration.email,
+        checked_in_at: attendance.scanned_at,
+      },
+    });
+  } catch (err) {
+    console.error('Error processing check-in:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/**
+ * Get QR code image URL for a registration
+ */
+const getQRCodeImage = async (req, res) => {
+  try {
+    const { registration_id } = req.params;
+    const userId = req.user?.id;
+
+    if (!registration_id || !UUID_REGEX.test(registration_id)) {
+      return res.status(400).json({ message: 'Valid registration id is required' });
+    }
+
+    const registration = await findRegistrationById(registration_id);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    // Check if user owns this registration (or admin)
+    if (registration.user_id !== userId && req.user.role_id !== 'admin_role') {
+      return res.status(403).json({ message: 'You can only view your own QR codes' });
+    }
+
+    return res.json({
+      message: 'QR code image URL retrieved successfully',
+      qr_image_url: registration.qr_image_path,
+      registration: {
+        id: registration.id,
+        event_title: registration.event_title,
+        registered_at: registration.registered_at,
+      },
+    });
+  } catch (err) {
+    console.error('Error retrieving QR code image:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/**
+ * Check-in by registration ID
+ */
+const checkInByRegistration = async (req, res) => {
+  try {
+    const { registration_id } = req.params;
+    const scannedBy = req.user?.id;
+
+    if (!registration_id || !UUID_REGEX.test(registration_id)) {
+      return res.status(400).json({ message: 'Valid registration id is required' });
+    }
+    if (!scannedBy || !UUID_REGEX.test(scannedBy)) {
+      return res.status(401).json({ message: 'You must be logged in to process check-in' });
+    }
+
+    const result = await checkInByRegistrationId(registration_id, scannedBy);
+
+    if (!result.success) {
+      if (result.error === 'Already checked in') {
+        return res.status(200).json({
+          message: 'Already checked in',
+          attendance: result.attendance,
+          registration: {
+            id: result.registration.id,
+            event_title: result.registration.event_title,
+            user_name: `${result.registration.first_name} ${result.registration.last_name}`,
+            email: result.registration.email,
+            checked_in_at: result.attendance.scanned_at,
+          },
+        });
+      }
+      return res.status(404).json({ message: result.error });
+    }
+
+    return res.status(201).json({
+      message: 'Check-in successful',
+      attendance: result.attendance,
+      registration: {
+        id: result.registration.id,
+        event_title: result.registration.event_title,
+        user_name: `${result.registration.first_name} ${result.registration.last_name}`,
+        email: result.registration.email,
+        checked_in_at: result.attendance.scanned_at,
+      },
+    });
+  } catch (err) {
+    console.error('Error processing check-in by registration ID:', err);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -856,6 +1057,7 @@ module.exports = {
   remove,
   getById,
   getAll,
+  getManagedSummary,
   getAllRegistered,
   getAllByGroup,
   uploadEventImage,
@@ -867,5 +1069,8 @@ module.exports = {
   updateStaff,
   deleteStaff,
   registerForEvent,
+  processCheckIn,
+  getQRCodeImage,
+  checkInByRegistration,
 };
 

@@ -10,6 +10,7 @@ const notificationRoutes = require('./router/notificationRoutes');
 const invitationRoutes = require('./router/invitationRoutes');
 const userRoutes = require('./router/userRoutes');
 const inviteLinkRoutes = require('./router/inviteLinkRoutes');
+const attendeeRoutes = require('./router/attendeeRoutes');
 
 const app = express();
 
@@ -29,6 +30,15 @@ app.use(cors({
 app.use(express.json());
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
+// Serve QR codes with CORS headers for downloads
+app.use('/qr-codes', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(process.cwd(), 'public/qr-codes')));
+
 // Root health check
 app.get('/', (req, res) => {
   res.json({ message: 'Smart Event Management System API' });
@@ -43,6 +53,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', inviteLinkRoutes);
+app.use('/api/attendees', attendeeRoutes);
 
 app.use((err, _req, res, next) => {
   if (err && err.name === 'MulterError') {

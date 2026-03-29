@@ -4,6 +4,7 @@ const {
   isGroupMember,
 } = require('../repository/groupRepository');
 const { getAllEventsByGroup } = require('../repository/eventRepository');
+const { getFullUrl } = require('./uploadService');
 
 const getGroupDetails = async (groupId, userId, userRole) => {
   // Get basic group info
@@ -36,6 +37,7 @@ const getGroupDetails = async (groupId, userId, userRole) => {
   return {
     group: {
       ...group,
+      image_url: group.image_url ? getFullUrl(group.image_url) : null,
       member_count: memberCount,
       event_count: eventCount,
     },

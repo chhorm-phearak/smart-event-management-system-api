@@ -9,3 +9,6 @@ coverage/
 
 # Uploaded files (images, etc.) – not tracked in git
 uploads/
+
+# QR code images
+public/qr-codes/

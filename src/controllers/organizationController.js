@@ -11,6 +11,15 @@ const {
   deleteOrganizationMember,
 } = require('../repository/organizationRepository');
 const { findById } = require('../repository/userRepository');
+const {
+  registerOrganization,
+  OrganizationRegistrationError,
+  getOrganizationInfo,
+} = require('../services/organizationService');
+const {
+  getOrganizerDashboardStats,
+  getEventsByOrganizerId,
+} = require('../services/organizerDashboardService');
 
 // ----- Organization CRUD -----
 const getAll = async (req, res) => {
@@ -25,6 +34,74 @@ const getAll = async (req, res) => {
     });
   } catch (err) {
     console.error('Error retrieving organizations:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const getCurrentInfo = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const info = await getOrganizationInfo(userId);
+
+    if (!info) {
+      return res.status(404).json({ message: 'No organization or application data found' });
+    }
+
+    return res.json({
+      message: 'Organization info retrieved successfully',
+      data: info,
+    });
+  } catch (err) {
+    if (err instanceof OrganizationRegistrationError) {
+      return res.status(err.statusCode || 400).json({ message: err.message });
+    }
+    console.error('Error retrieving organization info:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const register = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const application = await registerOrganization(userId, req.body);
+
+    return res.status(201).json({
+      message: 'Organization application submitted successfully',
+      data: { application },
+    });
+  } catch (err) {
+    if (err instanceof OrganizationRegistrationError) {
+      return res.status(err.statusCode || 400).json({ message: err.message });
+    }
+    console.error('Error registering organization:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const getMembersForOrganizer = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const organizations = await findOrganizationByUserId(userId);
+    if (!organizations || organizations.length === 0) {
+      return res.status(403).json({ message: 'You are not an organizer' });
+    }
+
+    const membersByOrganization = await Promise.all(
+      organizations.map((organization) => getOrganizationMembers(organization.id))
+    );
+
+    const data = organizations.map((organization, index) => ({
+      organization,
+      members: membersByOrganization[index],
+    }));
+
+    return res.json({
+      message: 'Organization members retrieved successfully',
+      data,
+    });
+  } catch (err) {
+    console.error('Error retrieving organization members for organizer:', err);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -256,6 +333,41 @@ const addMember = async (req, res) => {
   }
 };
 
+const removeMemberForOrganizer = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role_id;
+    const { memberId } = req.params;
+
+    const member = await findOrganizationMemberById(memberId);
+    if (!member) {
+      return res.status(404).json({ message: 'Member not found' });
+    }
+
+    if (member.org_owner_id === member.user_id) {
+      return res.status(400).json({ message: 'Cannot remove the organization owner' });
+    }
+
+    if (userRole !== 'admin_role') {
+      const organizations = await findOrganizationByUserId(userId);
+      if (!organizations || organizations.length === 0) {
+        return res.status(403).json({ message: 'You are not an organizer' });
+      }
+
+      const ownsThisOrg = organizations.some((o) => o.id === member.organization_id);
+      if (!ownsThisOrg) {
+        return res.status(403).json({ message: 'You do not have permission to remove this member' });
+      }
+    }
+
+    await deleteOrganizationMember(memberId);
+    return res.json({ message: 'Member removed successfully' });
+  } catch (err) {
+    console.error('Error removing organization member for organizer:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const removeMember = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -288,14 +400,52 @@ const removeMember = async (req, res) => {
   }
 };
 
+const getDashboardStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const stats = await getOrganizerDashboardStats(userId);
+
+    return res.json({
+      message: 'Dashboard stats retrieved successfully',
+      data: stats,
+    });
+  } catch (err) {
+    console.error('Error retrieving dashboard stats:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const getDashboardEvents = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { page = 1, limit = 10 } = req.query;
+
+    const result = await getEventsByOrganizerId(userId, parseInt(page), parseInt(limit));
+
+    return res.json({
+      message: 'Dashboard events retrieved successfully',
+      data: result,
+    });
+  } catch (err) {
+    console.error('Error retrieving dashboard events:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   getAll,
   getById,
   create,
   update,
   remove,
+  register,
+  getCurrentInfo,
+  getMembersForOrganizer,
   getMembers,
   getMemberById,
   addMember,
+  removeMemberForOrganizer,
   removeMember,
+  getDashboardStats,
+  getDashboardEvents,
 };
