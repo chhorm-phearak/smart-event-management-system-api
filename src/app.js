@@ -11,6 +11,10 @@ const invitationRoutes = require('./router/invitationRoutes');
 const userRoutes = require('./router/userRoutes');
 const inviteLinkRoutes = require('./router/inviteLinkRoutes');
 const attendeeRoutes = require('./router/attendeeRoutes');
+const userAdminRoutes = require('./router/userAdminRoutes');
+const organizationAdminRoutes = require('./router/organizationAdminRoutes');
+const organizationApplicationAdminRoutes = require('./router/organizationApplicationAdminRoutes');
+const eventAdminRoutes = require('./router/eventAdminRoutes');
 
 const app = express();
 
@@ -54,6 +58,10 @@ app.use('/api/invitations', invitationRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', inviteLinkRoutes);
 app.use('/api/attendees', attendeeRoutes);
+app.use('/api/admin/users', userAdminRoutes);
+app.use('/api/admin/organizations', organizationAdminRoutes);
+app.use('/api/admin/organization-applications', organizationApplicationAdminRoutes);
+app.use('/api/admin/events', eventAdminRoutes);
 
 app.use((err, _req, res, next) => {
   if (err && err.name === 'MulterError') {

@@ -465,7 +465,8 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     countParams = [];
     
     dataQuery = `
-      SELECT e.*, o.org_name as organization_name, g.name as group_name
+      SELECT e.*, o.org_name as organization_name, g.name as group_name,
+        (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
@@ -487,7 +488,8 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     countParams = [userId];
     
     dataQuery = `
-      SELECT e.*, o.org_name as organization_name, g.name as group_name
+      SELECT e.*, o.org_name as organization_name, g.name as group_name,
+        (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
@@ -713,7 +715,8 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
       o.org_name as organization_name,
       g.name as group_name,
       er.id as registration_id,
-      er.qr_image_path
+      er.qr_image_path,
+      (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
      FROM event_registrations er
      INNER JOIN events e ON er.event_id = e.id
      LEFT JOIN organizations o ON e.organization_id = o.id
