@@ -27,7 +27,9 @@ const {
   createAttendanceLog,
   findAttendanceByRegistration,
   checkInByRegistrationId,
+  deleteEventRegistrationById,
 } = require('../repository/eventRepository');
+const { createNotification } = require('../services/notificationService');
 const {
   findOrganizationById,
   findOrganizationByUserId,
@@ -1051,6 +1053,67 @@ const checkInByRegistration = async (req, res) => {
   }
 };
 
+/**
+ * Remove a user from an event by registration ID (organizer only).
+ * Deletes the registration and sends a notification to the removed user.
+ */
+const removeUserFromEvent = async (req, res) => {
+  try {
+    const registrationId = req.params.registrationId;
+    const currentUserId = req.user?.id;
+    const userRole = req.user?.role_id;
+
+    if (!registrationId || !UUID_REGEX.test(registrationId)) {
+      return res.status(400).json({ message: 'Valid registration id is required' });
+    }
+
+    // Find the registration first
+    const registration = await findRegistrationById(registrationId);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const event = await findEventById(registration.event_id);
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    // Check if current user is the organizer (owner of the organization) or admin
+    if (userRole !== 'admin_role') {
+      const isOwner = await isOrganizationOwner(event.organization_id, currentUserId);
+      if (!isOwner) {
+        return res.status(403).json({
+          message: 'You do not have permission to remove users from this event',
+        });
+      }
+    }
+
+    // Delete the registration
+    await deleteEventRegistrationById(registrationId);
+
+    // Create notification for the removed user
+    await createNotification({
+      user_id: registration.user_id,
+      event_id: registration.event_id,
+      type: 'EVENT_REGISTRATION_REMOVED',
+      title: 'Registration Removed',
+      message: `You have been removed from the event "${event.title}" by the organizer.`,
+    });
+
+    return res.json({
+      message: 'User removed from event successfully',
+      data: {
+        registration_id: registrationId,
+        event_id: registration.event_id,
+        user_id: registration.user_id,
+      },
+    });
+  } catch (err) {
+    console.error('Error removing user from event:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   create,
   update,
@@ -1072,5 +1135,6 @@ module.exports = {
   processCheckIn,
   getQRCodeImage,
   checkInByRegistration,
+  removeUserFromEvent,
 };
 

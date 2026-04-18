@@ -20,6 +20,7 @@ const {
   processCheckIn,
   getQRCodeImage,
   checkInByRegistration,
+  removeUserFromEvent,
 } = require('../controllers/eventController');
 const {
   getAll: getAgendaList,
@@ -43,6 +44,8 @@ router.put('/:id', authMiddleware, update);
 router.delete('/:id', authMiddleware, remove);
 // Register logged-in user for event (no body needed)
 router.post('/:id/register', authMiddleware, registerForEvent);
+// Remove user from event by registration ID (organizer only)
+router.delete('/registrations/:registrationId', authMiddleware, removeUserFromEvent);
 // Event images
 router.get('/:id/images', authMiddleware, getImages);
 router.post('/:id/images', authMiddleware, uploadEventImage);

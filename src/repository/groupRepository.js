@@ -134,7 +134,9 @@ const isGroupMember = async (groupId, userId) => {
 
 const getUserGroups = async (userId) => {
   const result = await db.query(
-    `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id
+    `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id,
+     (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count,
+     (SELECT COUNT(*) FROM events WHERE group_id = g.id) as event_count
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON g.id = gm.group_id

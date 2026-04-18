@@ -9,7 +9,11 @@ const {
   findById,
   createUserProfile,
   getUserProfile,
+  setEmailVerificationToken,
+  findByVerificationToken,
+  verifyEmail: verifyEmailInDb,
 } = require('../repository/userRepository');
+const { sendVerificationEmail } = require('../services/emailService');
 const {
   createResetToken,
   findValidResetRecord,
@@ -40,15 +44,27 @@ const register = async (req, res) => {
       return res.status(409).json({ message: 'Email already in use' });
     }
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    console.log('Generated verification token:', verificationToken);
+    console.log('Token expires at:', verificationExpires);
+
     const hashed = await bcrypt.hash(password, 10);
-    // Automatically set role_id to 'user_role' for all new registrations
+    // Create user with PENDING status and verification token
     const user = await createUser({ 
       role_id: 'user_role', 
       first_name, 
       last_name, 
       email, 
-      password: hashed 
+      password: hashed,
+      status: 'PENDING',
+      email_verification_token: verificationToken,
+      email_verification_expires_at: verificationExpires,
     });
+
+    console.log('Created user with token:', user.email_verification_token);
 
     // Create user profile
     await createUserProfile(user.id, {
@@ -58,19 +74,25 @@ const register = async (req, res) => {
       contact: contact || null,
     });
 
-    const token = generateToken(user);
+    // Send verification email
+    try {
+      await sendVerificationEmail(email, verificationToken, first_name);
+    } catch (emailErr) {
+      console.error('Failed to send verification email:', emailErr);
+      // Continue registration even if email fails - user can resend later
+    }
 
     return res.status(201).json({
-      message: 'User registered successfully',
+      message: 'User registered successfully. Please check your email to verify your account.',
       data: {
         user: { 
           id: user.id, 
           first_name: user.first_name, 
           last_name: user.last_name,
           email: user.email, 
-          role_id: user.role_id 
+          role_id: user.role_id,
+          email_verified: false,
         },
-        token,
       },
     });
   } catch (err) {
@@ -89,6 +111,14 @@ const login = async (req, res) => {
     const user = await findByEmail(email);
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Check if email is verified
+    if (!user.email_verified) {
+      return res.status(403).json({ 
+        message: 'Please verify your email before logging in',
+        error: 'EMAIL_NOT_VERIFIED',
+      });
     }
 
     // Check if user is active
@@ -196,6 +226,88 @@ const logout = (req, res) => {
 
 const isTokenBlacklisted = (token) => tokenBlacklist.has(token);
 
+const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.query;
+    
+    if (!token) {
+      return res.status(400).json({ message: 'Verification token is required' });
+    }
+
+    const user = await findByVerificationToken(token);
+    
+    if (!user) {
+      // Token not found - could be already used (verified) or invalid
+      // Return success to handle duplicate calls gracefully
+      return res.json({ 
+        message: 'Email verified successfully. You can now log in.',
+      });
+    }
+
+    // Check if token has expired
+    if (new Date(user.email_verification_expires_at) < new Date()) {
+      return res.status(400).json({ message: 'Verification token has expired. Please request a new one.' });
+    }
+
+    // Check if already verified
+    if (user.email_verified) {
+      return res.json({ 
+        message: 'Email verified successfully. You can now log in.',
+      });
+    }
+
+    // Verify the email
+    await verifyEmailInDb(user.id);
+
+    return res.json({ 
+      message: 'Email verified successfully. You can now log in.',
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+const resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const user = await findByEmail(email);
+    if (!user) {
+      // Don't reveal if email exists
+      return res.json({ message: 'If that email exists and is not verified, a new verification email has been sent.' });
+    }
+
+    // Check if already verified
+    if (user.email_verified) {
+      return res.status(400).json({ message: 'Email is already verified' });
+    }
+
+    // Generate new verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await setEmailVerificationToken(user.id, verificationToken, verificationExpires);
+
+    // Send verification email
+    try {
+      await sendVerificationEmail(email, verificationToken, user.first_name);
+    } catch (emailErr) {
+      console.error('Failed to send verification email:', emailErr);
+      return res.status(500).json({ message: 'Failed to send verification email. Please try again later.' });
+    }
+
+    return res.json({ message: 'Verification email sent successfully.' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -275,6 +387,8 @@ module.exports = {
   resetPassword,
   logout,
   isTokenBlacklisted,
+  verifyEmail,
+  resendVerification,
   getProfile,
   updateUserProfile,
 };

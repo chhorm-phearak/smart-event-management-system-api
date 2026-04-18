@@ -16,12 +16,12 @@ const findByUsername = async (username) => {
   return result.rows[0];
 };
 
-const createUser = async ({ role_id, first_name, last_name, email, password }) => {
+const createUser = async ({ role_id, first_name, last_name, email, password, status = 'PENDING', email_verification_token = null, email_verification_expires_at = null }) => {
   const result = await db.query(
-    `INSERT INTO users (role_id, first_name, last_name, email, password)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO users (role_id, first_name, last_name, email, password, status, email_verified, email_verification_token, email_verification_expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8)
      RETURNING *`,
-    [role_id, first_name, last_name, email, password]
+    [role_id, first_name, last_name, email, password, status, email_verification_token, email_verification_expires_at]
   );
   return result.rows[0];
 };
@@ -39,6 +39,51 @@ const updatePassword = async (userId, hashedPassword) => {
     hashedPassword,
     userId,
   ]);
+};
+
+const setEmailVerificationToken = async (userId, token, expiresAt) => {
+  const result = await db.query(
+    `UPDATE users 
+     SET email_verification_token = $1, email_verification_expires_at = $2, updated_at = NOW()
+     WHERE id = $3 AND is_deleted = FALSE
+     RETURNING *`,
+    [token, expiresAt, userId]
+  );
+  return result.rows[0];
+};
+
+const findByVerificationToken = async (token) => {
+  console.log('findByVerificationToken called with:', token);
+  
+  // First check if ANY user has this token
+  const allTokens = await db.query(
+    `SELECT email, email_verification_token FROM users WHERE email_verification_token IS NOT NULL`
+  );
+  console.log('All users with tokens:', allTokens.rows);
+  
+  const result = await db.query(
+    `SELECT * FROM users 
+     WHERE email_verification_token = $1 
+     AND is_deleted = FALSE`,
+    [token]
+  );
+  console.log('Query result rows:', result.rows.length);
+  return result.rows[0];
+};
+
+const verifyEmail = async (userId) => {
+  const result = await db.query(
+    `UPDATE users 
+     SET email_verified = TRUE, 
+         status = 'ACTIVE',
+         email_verification_token = NULL, 
+         email_verification_expires_at = NULL,
+         updated_at = NOW()
+     WHERE id = $1 AND is_deleted = FALSE
+     RETURNING *`,
+    [userId]
+  );
+  return result.rows[0];
 };
 
 const createUserProfile = async (userId, { first_name, last_name, email, contact }) => {
@@ -160,6 +205,9 @@ module.exports = {
   createUser,
   findById,
   updatePassword,
+  setEmailVerificationToken,
+  findByVerificationToken,
+  verifyEmail,
   updateProfile,
   createUserProfile,
   getUserProfile,

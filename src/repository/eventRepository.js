@@ -925,6 +925,40 @@ const updateRegistrationStatus = async (registrationId, status) => {
   return result.rows[0];
 };
 
+const deleteEventRegistrationById = async (registrationId) => {
+  // First find the registration to get details
+  const registration = await findRegistrationById(registrationId);
+  if (!registration) {
+    return null;
+  }
+
+  // Delete any attendance logs for this registration
+  await db.query(
+    `DELETE FROM attendance_logs WHERE registration_id = $1`,
+    [registrationId]
+  );
+
+  // Delete the registration
+  const result = await db.query(
+    `DELETE FROM event_registrations WHERE id = $1 RETURNING *`,
+    [registrationId]
+  );
+
+  // Try to delete the QR code image file
+  if (registration.qr_image_path) {
+    const qrFilePath = path.join(__dirname, '../../public', registration.qr_image_path);
+    if (fs.existsSync(qrFilePath)) {
+      try {
+        fs.unlinkSync(qrFilePath);
+      } catch (err) {
+        console.error('Error deleting QR code file:', err);
+      }
+    }
+  }
+
+  return registration;
+};
+
 const checkInByRegistrationId = async (registrationId, scannedBy) => {
   // Find registration with full details
   const registration = await findRegistrationById(registrationId);
@@ -990,5 +1024,6 @@ module.exports = {
   findAttendanceByRegistration,
   updateRegistrationStatus,
   checkInByRegistrationId,
+  deleteEventRegistrationById,
 };
 
