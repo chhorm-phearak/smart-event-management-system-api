@@ -15,6 +15,7 @@ const userAdminRoutes = require('./router/userAdminRoutes');
 const organizationAdminRoutes = require('./router/organizationAdminRoutes');
 const organizationApplicationAdminRoutes = require('./router/organizationApplicationAdminRoutes');
 const eventAdminRoutes = require('./router/eventAdminRoutes');
+const globalChatRoutes = require('./router/globalChatRoutes');
 
 const app = express();
 
@@ -62,16 +63,25 @@ app.use('/api/admin/users', userAdminRoutes);
 app.use('/api/admin/organizations', organizationAdminRoutes);
 app.use('/api/admin/organization-applications', organizationApplicationAdminRoutes);
 app.use('/api/admin/events', eventAdminRoutes);
+app.use('/api/global-chat', globalChatRoutes);
 
 app.use((err, _req, res, next) => {
   if (err && err.name === 'MulterError') {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ message: 'Each image must be smaller than 5MB' });
+      // Chat allows up to 10MB; image uploads are 5MB. Use a generic, accurate message.
+      return res.status(400).json({ message: 'File too large. Max 5MB for images, 10MB for chat files.' });
+    }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE' || err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ message: 'Too many files. Maximum 5 files per chat message.' });
     }
     return res.status(400).json({ message: err.message });
   }
 
   if (err && err.message === 'Only jpeg, png, and webp image uploads are allowed') {
+    return res.status(400).json({ message: err.message });
+  }
+
+  if (err && typeof err.message === 'string' && err.message.startsWith('Unsupported chat file type')) {
     return res.status(400).json({ message: err.message });
   }
 

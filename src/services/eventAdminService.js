@@ -1,4 +1,5 @@
 const {
+  getEventAdminStats,
   getAllEvents,
   getEventById,
   updateEventStatus,
@@ -7,7 +8,10 @@ const {
 
 const getAllEventsService = async ({ search, status, category, organization_id, page = 1, limit = 10 }) => {
   const offset = (page - 1) * limit;
-  const result = await getAllEvents({ search, status, category, organization_id, limit, offset });
+  const [result, stats] = await Promise.all([
+    getAllEvents({ search, status, category, organization_id, limit, offset }),
+    getEventAdminStats(),
+  ]);
 
   return {
     events: result.events,
@@ -17,6 +21,7 @@ const getAllEventsService = async ({ search, status, category, organization_id, 
       limit,
       total_pages: Math.ceil(result.total / limit),
     },
+    stats,
   };
 };
 

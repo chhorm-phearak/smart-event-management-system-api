@@ -1,5 +1,23 @@
 const db = require('../config/db');
 
+const getOrganizationApplicationAdminStats = async () => {
+  const result = await db.query(`
+    SELECT
+      COUNT(*)::int AS total_applications,
+      COUNT(*) FILTER (WHERE oa.status = 'PENDING')::int AS total_pending,
+      COUNT(*) FILTER (WHERE oa.status = 'APPROVED')::int AS total_approved,
+      COUNT(*) FILTER (WHERE oa.status = 'REJECTED')::int AS total_rejected
+    FROM organization_applications oa
+  `);
+  const row = result.rows[0];
+  return {
+    total_applications: parseInt(row.total_applications, 10),
+    total_pending: parseInt(row.total_pending, 10),
+    total_approved: parseInt(row.total_approved, 10),
+    total_rejected: parseInt(row.total_rejected, 10),
+  };
+};
+
 const getAllApplications = async ({ search, status, limit = 10, offset = 0 } = {}) => {
   const values = [];
   const conditions = [];
@@ -102,6 +120,7 @@ const updateApplicationStatus = async (applicationId, status, reviewedBy) => {
 };
 
 module.exports = {
+  getOrganizationApplicationAdminStats,
   getAllApplications,
   getApplicationById,
   updateApplicationStatus,

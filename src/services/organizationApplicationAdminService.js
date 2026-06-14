@@ -1,14 +1,19 @@
 const {
+  getOrganizationApplicationAdminStats,
   getAllApplications,
   getApplicationById,
   updateApplicationStatus,
 } = require('../repository/organizationApplicationAdminRepository');
 const { createOrganization } = require('../repository/organizationRepository');
 const { findById } = require('../repository/userRepository');
+const { createNotification } = require('./notificationService');
 
 const getAllApplicationsService = async ({ search, status, page = 1, limit = 10 }) => {
   const offset = (page - 1) * limit;
-  const result = await getAllApplications({ search, status, limit, offset });
+  const [result, stats] = await Promise.all([
+    getAllApplications({ search, status, limit, offset }),
+    getOrganizationApplicationAdminStats(),
+  ]);
 
   return {
     applications: result.applications,
@@ -18,6 +23,7 @@ const getAllApplicationsService = async ({ search, status, page = 1, limit = 10 
       limit,
       total_pages: Math.ceil(result.total / limit),
     },
+    stats,
   };
 };
 
@@ -50,6 +56,21 @@ const approveApplicationService = async (applicationId, adminId) => {
     status: 'ACTIVE',
   });
 
+  // Create notification for the approved organizer
+  await createNotification({
+    user_id: application.user_id,
+    type: 'SYSTEM',
+    title: 'Organization Application Approved',
+    message: `Congratulations! Your organization application for "${application.org_name}" has been approved. You can now start creating events.`,
+    organization_id: organization.id,
+    actor_user_id: adminId,
+    data: {
+      application_id: applicationId,
+      organization_id: organization.id,
+      action: 'organization_approved'
+    }
+  });
+
   return {
     application: updatedApplication,
     organization,
@@ -69,6 +90,19 @@ const rejectApplicationService = async (applicationId, adminId) => {
 
   // Update application status to REJECTED
   const updatedApplication = await updateApplicationStatus(applicationId, 'REJECTED', adminId);
+
+  // Create notification for the rejected applicant
+  await createNotification({
+    user_id: application.user_id,
+    type: 'SYSTEM',
+    title: 'Organization Application Rejected',
+    message: `Your organization application for "${application.org_name}" has been rejected. Please contact support for more information.`,
+    actor_user_id: adminId,
+    data: {
+      application_id: applicationId,
+      action: 'organization_rejected'
+    }
+  });
 
   return {
     application: updatedApplication,

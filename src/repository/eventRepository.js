@@ -282,19 +282,41 @@ const getEventStaff = async (eventId) => {
   return result.rows;
 };
 
-const addEventImage = async (eventId, imageUrl, description = null) => {
-  const result = await db.query(
-    `INSERT INTO event_images (event_id, image_url, description)
-     VALUES ($1, $2, $3)
-     RETURNING *`,
-    [eventId, imageUrl, description]
-  );
-  return result.rows[0];
+const addEventImage = async (eventId, imageUrl, description = null, markOldAsDeleted = false) => {
+  const client = await db.getClient();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // If requested, mark old images as deleted
+    if (markOldAsDeleted) {
+      await client.query(
+        'UPDATE event_images SET is_deleted = TRUE, updated_at = NOW() WHERE event_id = $1 AND is_deleted = FALSE',
+        [eventId]
+      );
+    }
+    
+    // Add new image
+    const result = await client.query(
+      `INSERT INTO event_images (event_id, image_url, description)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [eventId, imageUrl, description]
+    );
+    
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 const getEventImages = async (eventId) => {
   const result = await db.query(
-    'SELECT * FROM event_images WHERE event_id = $1 ORDER BY created_at DESC',
+    'SELECT * FROM event_images WHERE event_id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL) ORDER BY created_at DESC',
     [eventId]
   );
   return result.rows;
@@ -310,7 +332,7 @@ const findEventImageById = async (imageId) => {
 
 const deleteEventImage = async (imageId) => {
   const result = await db.query(
-    'DELETE FROM event_images WHERE id = $1 RETURNING *',
+    'UPDATE event_images SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *',
     [imageId]
   );
   return result.rows[0];
@@ -461,6 +483,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       SELECT COUNT(*) as total
       FROM events e
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND e.group_id IS NULL
     `;
     countParams = [];
     
@@ -471,6 +494,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND e.group_id IS NULL
       ORDER BY e.created_at DESC
       LIMIT $1 OFFSET $2
     `;
@@ -481,6 +505,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       SELECT COUNT(*) as total
       FROM events e
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND e.group_id IS NULL
         AND (e.organization_id IN (
           SELECT id FROM organizations WHERE user_id = $1
         ) OR e.is_public = TRUE)
@@ -494,6 +519,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       LEFT JOIN organizations o ON e.organization_id = o.id
       LEFT JOIN groups g ON e.group_id = g.id
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND e.group_id IS NULL
         AND (e.organization_id IN (
           SELECT id FROM organizations WHERE user_id = $1
         ) OR e.is_public = TRUE)

@@ -1,5 +1,24 @@
 const db = require('../config/db');
 
+const getEventAdminStats = async () => {
+  const result = await db.query(`
+    SELECT
+      COUNT(*)::int AS total_events,
+      COUNT(*) FILTER (WHERE e.start_time >= NOW())::int AS upcoming_events,
+      COUNT(*) FILTER (WHERE e.start_time < NOW())::int AS past_events
+    FROM events e
+    WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+  `);
+  const row = result.rows[0];
+  return {
+    total_events: parseInt(row.total_events, 10),
+    status: {
+      upcoming: parseInt(row.upcoming_events, 10),
+      past: parseInt(row.past_events, 10),
+    },
+  };
+};
+
 const getAllEvents = async ({ search, status, category, organization_id, limit = 10, offset = 0 } = {}) => {
   const values = [];
   const conditions = ['(e.is_deleted = FALSE OR e.is_deleted IS NULL)'];
@@ -143,6 +162,7 @@ const deleteEvent = async (eventId) => {
 };
 
 module.exports = {
+  getEventAdminStats,
   getAllEvents,
   getEventById,
   updateEventStatus,

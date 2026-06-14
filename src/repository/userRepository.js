@@ -102,33 +102,87 @@ const createUserProfile = async (userId, { first_name, last_name, email, contact
   return result.rows[0];
 };
 
-const updateProfile = async (userId, { first_name, last_name, email }) => {
-  const updates = [];
-  const values = [];
-  let paramCount = 1;
+const updateProfile = async (userId, { 
+  first_name, 
+  last_name, 
+  email, 
+  img_url, 
+  contact, 
+  address, 
+  date_of_birth,
+  gender 
+}) => {
+  const client = await db.getClient();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Update users table
+    const userUpdates = [];
+    const userValues = [];
+    let paramCount = 1;
 
-  if (first_name !== undefined) {
-    updates.push(`first_name = $${paramCount++}`);
-    values.push(first_name);
-  }
-  if (last_name !== undefined) {
-    updates.push(`last_name = $${paramCount++}`);
-    values.push(last_name);
-  }
-  if (email !== undefined) {
-    updates.push(`email = $${paramCount++}`);
-    values.push(email);
-  }
+    if (first_name !== undefined) {
+      userUpdates.push(`first_name = $${paramCount++}`);
+      userValues.push(first_name);
+    }
+    if (last_name !== undefined) {
+      userUpdates.push(`last_name = $${paramCount++}`);
+      userValues.push(last_name);
+    }
+    if (email !== undefined) {
+      userUpdates.push(`email = $${paramCount++}`);
+      userValues.push(email);
+    }
 
-  if (updates.length === 0) {
-    // Return current user if no updates
-    return await findById(userId);
-  }
+    if (userUpdates.length > 0) {
+      userValues.push(userId);
+      const userQuery = `UPDATE users SET ${userUpdates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} AND is_deleted = FALSE RETURNING *`;
+      await client.query(userQuery, userValues);
+    }
 
-  values.push(userId);
-  const query = `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} AND is_deleted = FALSE RETURNING *`;
-  const result = await db.query(query, values);
-  return result.rows[0];
+    // Update user_profile table
+    const profileUpdates = [];
+    const profileValues = [];
+    paramCount = 1;
+
+    if (img_url !== undefined) {
+      profileUpdates.push(`img_url = $${paramCount++}`);
+      profileValues.push(img_url);
+    }
+    if (contact !== undefined) {
+      profileUpdates.push(`contact = $${paramCount++}`);
+      profileValues.push(contact);
+    }
+    if (address !== undefined) {
+      profileUpdates.push(`address = $${paramCount++}`);
+      profileValues.push(address);
+    }
+    if (date_of_birth !== undefined) {
+      profileUpdates.push(`date_of_birth = $${paramCount++}`);
+      profileValues.push(date_of_birth);
+    }
+    if (gender !== undefined) {
+      profileUpdates.push(`gender = $${paramCount++}`);
+      profileValues.push(gender);
+    }
+
+    if (profileUpdates.length > 0) {
+      profileValues.push(userId);
+      const profileQuery = `UPDATE user_profile SET ${profileUpdates.join(', ')}, updated_at = NOW() WHERE user_id = $${paramCount}`;
+      await client.query(profileQuery, profileValues);
+    }
+
+    await client.query('COMMIT');
+    
+    // Return the complete updated profile
+    return await getUserProfile(userId);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 const getUserProfile = async (userId) => {

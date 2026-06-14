@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const db = require('../config/db');
 const {
   findByEmail,
   createUser,
@@ -108,8 +109,32 @@ const login = async (req, res) => {
       return res.status(400).json({ message: 'email and password are required' });
     }
 
+    // Check if account is locked before proceeding
+    const isLocked = await db.query(
+      'SELECT is_account_locked($1) as locked',
+      [email]
+    );
+    
+    if (isLocked.rows[0].locked) {
+      const remainingMinutes = await db.query(
+        'SELECT get_lockout_remaining_minutes($1) as minutes',
+        [email]
+      );
+      
+      const minutes = remainingMinutes.rows[0].minutes;
+      const timeMessage = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+      
+      return res.status(423).json({ 
+        message: `Account temporarily locked due to multiple failed login attempts. Please log in again after ${timeMessage}.`,
+        error: 'ACCOUNT_LOCKED',
+        lockout_minutes: minutes
+      });
+    }
+
     const user = await findByEmail(email);
     if (!user) {
+      // Handle failed login for non-existent user
+      await db.query('SELECT handle_failed_login($1)', [email]);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -128,8 +153,13 @@ const login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      // Handle failed login
+      await db.query('SELECT handle_failed_login($1)', [email]);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    // Handle successful login - reset lockout state
+    await db.query('SELECT handle_successful_login($1)', [email]);
 
     const token = generateToken(user);
     const organizations = await findOrganizationByUserId(user.id);
@@ -346,7 +376,16 @@ const getProfile = async (req, res) => {
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { first_name, last_name, email } = req.body;
+    const { 
+      first_name, 
+      last_name, 
+      email, 
+      img_url, 
+      contact, 
+      address, 
+      date_of_birth,
+      gender 
+    } = req.body;
 
     // Check if email is being updated and if it's already in use by another user
     if (email) {
@@ -356,21 +395,41 @@ const updateUserProfile = async (req, res) => {
       }
     }
 
-    const updatedUser = await updateProfile(userId, { first_name, last_name, email });
+    const updatedUser = await updateProfile(userId, { 
+      first_name, 
+      last_name, 
+      email, 
+      img_url, 
+      contact, 
+      address, 
+      date_of_birth,
+      gender 
+    });
 
     if (!updatedUser) {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Get the complete updated profile
+    const profile = await getUserProfile(userId);
+
     return res.json({
       message: 'Profile updated successfully',
       data: {
         user: {
-          id: updatedUser.id,
-          first_name: updatedUser.first_name,
-          last_name: updatedUser.last_name,
-          email: updatedUser.email,
-          role_id: updatedUser.role_id,
+          id: profile.id,
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          email: profile.email,
+          gender: profile.gender,
+          status: profile.status,
+          role_id: profile.role_id,
+          img_url: profile.img_url,
+          contact: profile.contact,
+          address: profile.address,
+          date_of_birth: profile.date_of_birth,
+          created_at: profile.created_at,
+          updated_at: profile.updated_at,
         },
       },
     });

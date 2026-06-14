@@ -47,6 +47,7 @@ const getGroupDetails = async (groupId, userId, userRole) => {
       last_name: member.last_name,
       email: member.email,
       contact: member.contact,
+      profile_image: member.img_url ? getFullUrl(member.img_url) : null,
       joined_at: member.joined_at,
       role: member.role,
     })),

@@ -40,6 +40,28 @@ const QRCode = require('qrcode');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Helper function to convert UTC time to Cambodia local time (UTC+7)
+const convertToCambodiaTime = (utcDate) => {
+  if (!utcDate) return null;
+  const date = new Date(utcDate);
+  // Cambodia is UTC+7, add 7 hours to UTC time
+  date.setHours(date.getUTCHours() + 7);
+  return date.toISOString();
+};
+
+// Helper function to convert time fields in event object to Cambodia time
+const convertEventTimesToCambodia = (event) => {
+  if (!event) return event;
+  
+  return {
+    ...event,
+    start_time: convertToCambodiaTime(event.start_time),
+    end_time: convertToCambodiaTime(event.end_time),
+    created_at: convertToCambodiaTime(event.created_at),
+    updated_at: convertToCambodiaTime(event.updated_at)
+  };
+};
+
 const create = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -169,10 +191,13 @@ const create = async (req, res) => {
       staffMembers = await addEventStaff(event.id, staff, organization_id);
     }
 
+    // Convert event times to Cambodia local time
+    const cambodiaEvent = convertEventTimesToCambodia(event);
+
     return res.status(201).json({
       message: 'Event created successfully',
       data: {
-        event,
+        event: cambodiaEvent,
         agenda: agendaItems,
         staff: staffMembers,
       },
@@ -221,6 +246,11 @@ const getManagedSummary = async (req, res) => {
 
     const result = await getManagedEventsSummary(userId, userRole, page, limit);
 
+    // Convert event times to Cambodia local time
+    if (result.events && Array.isArray(result.events)) {
+      result.events = result.events.map(event => convertEventTimesToCambodia(event));
+    }
+
     return res.json({
       message: 'Managed events retrieved successfully',
       data: result,
@@ -251,6 +281,11 @@ const getAll = async (req, res) => {
     }
 
     const result = await getAllEvents(null, userId, userRole, page, limit);
+
+    // Convert event times to Cambodia local time
+    if (result.events && Array.isArray(result.events)) {
+      result.events = result.events.map(event => convertEventTimesToCambodia(event));
+    }
 
     return res.json({
       message: 'Events retrieved successfully',
@@ -395,10 +430,13 @@ const update = async (req, res) => {
       staffMembers = await getEventStaff(id);
     }
 
+    // Convert event times to Cambodia local time
+    const cambodiaEvent = convertEventTimesToCambodia(updatedEvent);
+
     return res.json({
       message: 'Event updated successfully',
       data: {
-        event: updatedEvent,
+        event: cambodiaEvent,
         agenda: agendaItems,
         staff: staffMembers,
       },
@@ -494,10 +532,13 @@ const getById = async (req, res) => {
       getEventImages(id),
     ]);
 
+    // Convert event times to Cambodia local time
+    const cambodiaEvent = convertEventTimesToCambodia(event);
+
     return res.json({
       message: 'Event retrieved successfully',
       data: {
-        event,
+        event: cambodiaEvent,
         agenda,
         staff,
         images,
@@ -531,6 +572,12 @@ const getAllByGroup = async (req, res) => {
       });
     }
 
+    const result = await getAllEventsByGroup(group_id, userId, userRole, page, limit);
+
+    // Convert event times to Cambodia local time
+    if (result.events && Array.isArray(result.events)) {
+      result.events = result.events.map(event => convertEventTimesToCambodia(event));
+    }
 
     return res.json({
       message: 'Group events retrieved successfully',
@@ -562,6 +609,11 @@ const getAllRegistered = async (req, res) => {
 
     const result = await getAllRegisteredEvents(userId, page, limit);
 
+    // Convert event times to Cambodia local time
+    if (result.events && Array.isArray(result.events)) {
+      result.events = result.events.map(event => convertEventTimesToCambodia(event));
+    }
+
     return res.json({
       message: 'Registered events retrieved successfully',
       data: result,
@@ -577,7 +629,7 @@ const uploadEventImage = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role_id;
     const { id: eventId } = req.params;
-    const { image_urls } = req.body;
+    const { image_urls, mark_old_as_deleted = false } = req.body;
 
     if (!eventId) {
       return res.status(400).json({
@@ -613,12 +665,13 @@ const uploadEventImage = async (req, res) => {
     }
 
     const savedImages = await Promise.all(
-      validUrls.map((url) => addEventImage(eventId, url.trim()))
+      validUrls.map((url) => addEventImage(eventId, url.trim(), null, mark_old_as_deleted))
     );
 
     return res.status(201).json({
       message: 'Event images saved successfully',
       data: savedImages,
+      marked_old_as_deleted: mark_old_as_deleted,
     });
   } catch (err) {
     console.error('Error saving event images:', err);

@@ -15,7 +15,7 @@ const findGroupById = async (groupId) => {
     `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
-     WHERE g.id = $1`,
+     WHERE g.id = $1 AND g.is_deleted = FALSE`,
     [groupId]
   );
   return result.rows[0];
@@ -27,7 +27,7 @@ const getAllGroupsByOrganization = async (organizationId) => {
      (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
-     WHERE g.organization_id = $1
+     WHERE g.organization_id = $1 AND g.is_deleted = FALSE
      ORDER BY g.created_at DESC`,
     [organizationId]
   );
@@ -113,7 +113,8 @@ const getGroupMembers = async (groupId) => {
             u.first_name,
             u.last_name,
             u.email,
-            up.contact
+            up.contact,
+            up.img_url
      FROM group_members gm
      LEFT JOIN users u ON gm.user_id = u.id
      LEFT JOIN user_profile up ON u.id = up.user_id
@@ -134,13 +135,13 @@ const isGroupMember = async (groupId, userId) => {
 
 const getUserGroups = async (userId) => {
   const result = await db.query(
-    `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id,
+    `SELECT DISTINCT g.*, o.org_name as organization_name, o.user_id as org_owner_id,
      (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count,
      (SELECT COUNT(*) FROM events WHERE group_id = g.id) as event_count
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON g.id = gm.group_id
-     WHERE gm.user_id = $1 OR o.user_id = $1
+     WHERE (gm.user_id = $1 OR o.user_id = $1) AND g.is_deleted = FALSE
      ORDER BY g.created_at DESC`,
     [userId]
   );

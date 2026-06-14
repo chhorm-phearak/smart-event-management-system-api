@@ -17,7 +17,7 @@ const {
   getOrganizationInfo,
 } = require('../services/organizationService');
 const {
-  getOrganizerDashboardStats,
+  getPlatformDashboardStats,
   getEventsByOrganizerId,
 } = require('../services/organizerDashboardService');
 
@@ -402,8 +402,7 @@ const removeMember = async (req, res) => {
 
 const getDashboardStats = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const stats = await getOrganizerDashboardStats(userId);
+    const stats = await getPlatformDashboardStats();
 
     return res.json({
       message: 'Dashboard stats retrieved successfully',

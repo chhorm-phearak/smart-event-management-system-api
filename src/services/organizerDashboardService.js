@@ -5,74 +5,75 @@ const {
   getEventImages,
 } = require('../repository/eventRepository');
 
-const getOrganizerDashboardStats = async (organizerId) => {
-  const now = new Date().toISOString();
+const getPlatformDashboardStats = async () => {
+  const [result, organizersResult] = await Promise.all([
+    db.query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM users u
+       WHERE (u.is_deleted = FALSE OR u.is_deleted IS NULL)) AS total_users,
+      (SELECT COUNT(*)::int FROM organizations o
+       WHERE (o.is_deleted = FALSE OR o.is_deleted IS NULL)) AS total_organizers,
+      (SELECT COUNT(*)::int FROM events e
+       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)) AS total_events,
+      (SELECT COUNT(*)::int FROM organization_applications oa
+       WHERE (oa.is_deleted = FALSE OR oa.is_deleted IS NULL)) AS total_organizer_applications,
+      (SELECT COUNT(*)::int FROM organization_applications oa
+       WHERE oa.status = 'PENDING'
+         AND (oa.is_deleted = FALSE OR oa.is_deleted IS NULL)) AS pending_applications
+  `),
+    db.query(`
+    SELECT
+      o.id,
+      o.user_id,
+      o.org_name,
+      o.org_type,
+      o.contact,
+      o.email,
+      o.description,
+      o.status,
+      o.created_at,
+      u.first_name AS owner_first_name,
+      u.last_name AS owner_last_name,
+      u.email AS owner_email,
+      COALESCE(ec.cnt, 0)::int AS event_count
+    FROM organizations o
+    INNER JOIN users u ON u.id = o.user_id
+      AND (u.is_deleted = FALSE OR u.is_deleted IS NULL)
+    LEFT JOIN (
+      SELECT organization_id, COUNT(*)::int AS cnt
+      FROM events
+      WHERE (is_deleted = FALSE OR is_deleted IS NULL)
+      GROUP BY organization_id
+    ) ec ON ec.organization_id = o.id
+    WHERE (o.is_deleted = FALSE OR o.is_deleted IS NULL)
+    ORDER BY event_count DESC, o.org_name ASC
+  `),
+  ]);
 
-  // Get all organizations owned by this user
-  const orgsResult = await db.query(
-    'SELECT id FROM organizations WHERE user_id = $1',
-    [organizerId]
-  );
-
-  if (orgsResult.rows.length === 0) {
-    return {
-      total_events: 0,
-      upcoming_events: 0,
-      past_events: 0,
-      total_attendees: 0,
-    };
-  }
-
-  const orgIds = orgsResult.rows.map((o) => o.id);
-
-  // Total events
-  const totalEventsResult = await db.query(
-    `SELECT COUNT(*) as total
-     FROM events
-     WHERE organization_id = ANY($1::uuid[])
-       AND (is_deleted = FALSE OR is_deleted IS NULL)`,
-    [orgIds]
-  );
-  const totalEvents = parseInt(totalEventsResult.rows[0].total);
-
-  // Upcoming events (start_time >= now)
-  const upcomingEventsResult = await db.query(
-    `SELECT COUNT(*) as total
-     FROM events
-     WHERE organization_id = ANY($1::uuid[])
-       AND (is_deleted = FALSE OR is_deleted IS NULL)
-       AND start_time >= $2`,
-    [orgIds, now]
-  );
-  const upcomingEvents = parseInt(upcomingEventsResult.rows[0].total);
-
-  // Past events (start_time < now)
-  const pastEventsResult = await db.query(
-    `SELECT COUNT(*) as total
-     FROM events
-     WHERE organization_id = ANY($1::uuid[])
-       AND (is_deleted = FALSE OR is_deleted IS NULL)
-       AND start_time < $2`,
-    [orgIds, now]
-  );
-  const pastEvents = parseInt(pastEventsResult.rows[0].total);
-
-  // Total attendees (registrations for all events)
-  const totalAttendeesResult = await db.query(
-    `SELECT COUNT(*) as total
-     FROM event_registrations er
-     INNER JOIN events e ON er.event_id = e.id
-     WHERE e.organization_id = ANY($1::uuid[])
-       AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
-    [orgIds]
-  );
-  const totalAttendees = parseInt(totalAttendeesResult.rows[0].total);
+  const row = result.rows[0];
+  const organizers = organizersResult.rows.map((r) => ({
+    id: r.id,
+    user_id: r.user_id,
+    org_name: r.org_name,
+    org_type: r.org_type,
+    contact: r.contact,
+    email: r.email,
+    description: r.description,
+    status: r.status,
+    created_at: r.created_at,
+    owner_first_name: r.owner_first_name,
+    owner_last_name: r.owner_last_name,
+    owner_email: r.owner_email,
+    event_count: parseInt(r.event_count, 10),
+  }));
 
   return {
-    total_events: totalEvents,
-    upcoming_events: upcomingEvents,
-    past_events: pastEvents,
-    total_attendees: totalAttendees,
+    total_users: parseInt(row.total_users, 10),
+    total_organizers: parseInt(row.total_organizers, 10),
+    total_events: parseInt(row.total_events, 10),
+    total_organizer_applications: parseInt(row.total_organizer_applications, 10),
+    pending_applications: parseInt(row.pending_applications, 10),
+    organizers,
   };
 };
 
@@ -174,6 +175,6 @@ const getEventsByOrganizerId = async (organizerId, page = 1, limit = 10) => {
 };
 
 module.exports = {
-  getOrganizerDashboardStats,
+  getPlatformDashboardStats,
   getEventsByOrganizerId,
 };

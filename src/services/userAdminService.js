@@ -1,4 +1,5 @@
 const {
+  getUserAdminStats,
   getAllUsers,
   getUserById,
   updateUserStatus,
@@ -9,7 +10,10 @@ const { getFullUrl } = require('./uploadService');
 
 const getAllUsersService = async ({ search, status, role_id, page = 1, limit = 10 }) => {
   const offset = (page - 1) * limit;
-  const result = await getAllUsers({ search, status, role_id, limit, offset });
+  const [result, stats] = await Promise.all([
+    getAllUsers({ search, status, role_id, limit, offset }),
+    getUserAdminStats(),
+  ]);
 
   const users = result.users.map(user => ({
     ...user,
@@ -24,6 +28,7 @@ const getAllUsersService = async ({ search, status, role_id, page = 1, limit = 1
       limit,
       total_pages: Math.ceil(result.total / limit),
     },
+    stats,
   };
 };
 

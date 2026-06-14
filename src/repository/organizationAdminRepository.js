@@ -1,5 +1,23 @@
 const db = require('../config/db');
 
+const getOrganizationAdminStats = async () => {
+  const result = await db.query(`
+    SELECT
+      COUNT(*)::int AS total_organizers,
+      COUNT(*) FILTER (WHERE o.status = 'ACTIVE')::int AS total_active,
+      COUNT(*) FILTER (WHERE o.status = 'INACTIVE')::int AS total_inactive,
+      COUNT(*) FILTER (WHERE o.status = 'SUSPENDED')::int AS total_suspended
+    FROM organizations o
+  `);
+  const row = result.rows[0];
+  return {
+    total_organizers: parseInt(row.total_organizers, 10),
+    total_active: parseInt(row.total_active, 10),
+    total_inactive: parseInt(row.total_inactive, 10),
+    total_suspended: parseInt(row.total_suspended, 10),
+  };
+};
+
 const getAllOrganizations = async ({ search, status, org_type, limit = 10, offset = 0 } = {}) => {
   const values = [];
   const conditions = [];
@@ -102,6 +120,7 @@ const deleteOrganization = async (organizationId) => {
 };
 
 module.exports = {
+  getOrganizationAdminStats,
   getAllOrganizations,
   getOrganizationById,
   updateOrganizationStatus,

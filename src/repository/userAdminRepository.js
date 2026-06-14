@@ -1,5 +1,24 @@
 const db = require('../config/db');
 
+const getUserAdminStats = async () => {
+  const result = await db.query(`
+    SELECT
+      COUNT(*)::int AS total_users,
+      COUNT(*) FILTER (WHERE u.status = 'ACTIVE')::int AS total_active,
+      COUNT(*) FILTER (WHERE u.status = 'INACTIVE')::int AS total_inactive,
+      COUNT(*) FILTER (WHERE u.status = 'SUSPENDED')::int AS total_suspended
+    FROM users u
+    WHERE u.is_deleted = FALSE
+  `);
+  const row = result.rows[0];
+  return {
+    total_users: parseInt(row.total_users, 10),
+    total_active: parseInt(row.total_active, 10),
+    total_inactive: parseInt(row.total_inactive, 10),
+    total_suspended: parseInt(row.total_suspended, 10),
+  };
+};
+
 const getAllUsers = async ({ search, status, role_id, limit = 10, offset = 0 } = {}) => {
   const values = [];
   const conditions = ['u.is_deleted = FALSE'];
@@ -41,6 +60,13 @@ const getAllUsers = async ({ search, status, role_id, limit = 10, offset = 0 } =
       u.gender,
       u.status,
       u.role_id,
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM organizations o
+          WHERE o.user_id = u.id
+            AND (o.is_deleted = FALSE OR o.is_deleted IS NULL)
+        ) THEN 'Organization'
+      END AS role,
       u.created_at,
       u.updated_at,
       up.img_url,
@@ -73,6 +99,13 @@ const getUserById = async (userId) => {
       u.gender,
       u.status,
       u.role_id,
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM organizations o
+          WHERE o.user_id = u.id
+            AND (o.is_deleted = FALSE OR o.is_deleted IS NULL)
+        ) THEN 'Organization'
+      END AS role,
       u.created_at,
       u.updated_at,
       up.img_url,
@@ -112,6 +145,7 @@ const deleteUser = async (userId) => {
 };
 
 module.exports = {
+  getUserAdminStats,
   getAllUsers,
   getUserById,
   updateUserStatus,

@@ -1,4 +1,5 @@
 const {
+  getOrganizationAdminStats,
   getAllOrganizations,
   getOrganizationById,
   updateOrganizationStatus,
@@ -7,7 +8,10 @@ const {
 
 const getAllOrganizationsService = async ({ search, status, org_type, page = 1, limit = 10 }) => {
   const offset = (page - 1) * limit;
-  const result = await getAllOrganizations({ search, status, org_type, limit, offset });
+  const [result, stats] = await Promise.all([
+    getAllOrganizations({ search, status, org_type, limit, offset }),
+    getOrganizationAdminStats(),
+  ]);
 
   return {
     organizations: result.organizations,
@@ -17,6 +21,7 @@ const getAllOrganizationsService = async ({ search, status, org_type, page = 1, 
       limit,
       total_pages: Math.ceil(result.total / limit),
     },
+    stats,
   };
 };
 
