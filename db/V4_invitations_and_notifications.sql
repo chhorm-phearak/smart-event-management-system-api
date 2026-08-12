@@ -9,24 +9,24 @@
 -- INVITATIONS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS invitations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
     target_type VARCHAR(20) NOT NULL, -- ORGANIZATION | GROUP
-    organization_id UUID,
-    group_id UUID,
-    invited_user_id UUID,
+    organization_id CHAR(36),
+    group_id CHAR(36),
+    invited_user_id CHAR(36),
     invited_email VARCHAR(150),
-    invited_by UUID NOT NULL,
+    invited_by CHAR(36) NOT NULL,
     role VARCHAR(50),
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING | ACCEPTED | REJECTED | CANCELLED
     message TEXT,
-    responded_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    responded_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT fk_invitation_org
         FOREIGN KEY (organization_id) REFERENCES organizations(id),
     CONSTRAINT fk_invitation_group
-        FOREIGN KEY (group_id) REFERENCES groups(id),
+        FOREIGN KEY (group_id) REFERENCES `groups`(id),
     CONSTRAINT fk_invitation_user
         FOREIGN KEY (invited_user_id) REFERENCES users(id),
     CONSTRAINT fk_invitation_sender
@@ -44,34 +44,12 @@ CREATE TABLE IF NOT EXISTS invitations (
         CHECK (invited_user_id IS NOT NULL OR invited_email IS NOT NULL)
 );
 
--- Prevent duplicate active invites for same user/email + target.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_pending_org_user
-ON invitations (organization_id, invited_user_id)
-WHERE target_type = 'ORGANIZATION'
-  AND invited_user_id IS NOT NULL
-  AND status = 'PENDING'
-  AND is_deleted = FALSE;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_pending_group_user
-ON invitations (group_id, invited_user_id)
-WHERE target_type = 'GROUP'
-  AND invited_user_id IS NOT NULL
-  AND status = 'PENDING'
-  AND is_deleted = FALSE;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_pending_org_email
-ON invitations (organization_id, invited_email)
-WHERE target_type = 'ORGANIZATION'
-  AND invited_email IS NOT NULL
-  AND status = 'PENDING'
-  AND is_deleted = FALSE;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_pending_group_email
-ON invitations (group_id, invited_email)
-WHERE target_type = 'GROUP'
-  AND invited_email IS NOT NULL
-  AND status = 'PENDING'
-  AND is_deleted = FALSE;
+-- MySQL has no partial indexes, so duplicate pending invites are prevented in
+-- the application (invitationRepository.findPendingByTargetAndUser).
+CREATE INDEX IF NOT EXISTS idx_invitations_org_user ON invitations(organization_id, invited_user_id);
+CREATE INDEX IF NOT EXISTS idx_invitations_group_user ON invitations(group_id, invited_user_id);
+CREATE INDEX IF NOT EXISTS idx_invitations_org_email ON invitations(organization_id, invited_email);
+CREATE INDEX IF NOT EXISTS idx_invitations_group_email ON invitations(group_id, invited_email);
 
 CREATE INDEX IF NOT EXISTS idx_invitations_invited_user_id ON invitations(invited_user_id);
 CREATE INDEX IF NOT EXISTS idx_invitations_invited_email ON invitations(invited_email);
@@ -83,65 +61,29 @@ CREATE INDEX IF NOT EXISTS idx_invitations_created_at ON invitations(created_at 
 -- NOTIFICATIONS UPGRADE
 -- =====================================================
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type VARCHAR(50) NOT NULL DEFAULT 'SYSTEM';
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_user_id UUID;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id UUID;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS invitation_id UUID;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS data JSONB;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_user_id CHAR(36);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS organization_id CHAR(36);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id CHAR(36);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS invitation_id CHAR(36);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS data JSON;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at DATETIME;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_notification_actor_user'
-    ) THEN
-        ALTER TABLE notifications
-            ADD CONSTRAINT fk_notification_actor_user
-            FOREIGN KEY (actor_user_id) REFERENCES users(id);
-    END IF;
-END $$;
+ALTER TABLE notifications
+    ADD CONSTRAINT fk_notification_actor_user
+    FOREIGN KEY (actor_user_id) REFERENCES users(id);
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_notification_org'
-    ) THEN
-        ALTER TABLE notifications
-            ADD CONSTRAINT fk_notification_org
-            FOREIGN KEY (organization_id) REFERENCES organizations(id);
-    END IF;
-END $$;
+ALTER TABLE notifications
+    ADD CONSTRAINT fk_notification_org
+    FOREIGN KEY (organization_id) REFERENCES organizations(id);
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_notification_group'
-    ) THEN
-        ALTER TABLE notifications
-            ADD CONSTRAINT fk_notification_group
-            FOREIGN KEY (group_id) REFERENCES groups(id);
-    END IF;
-END $$;
+ALTER TABLE notifications
+    ADD CONSTRAINT fk_notification_group
+    FOREIGN KEY (group_id) REFERENCES `groups`(id);
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_notification_invitation'
-    ) THEN
-        ALTER TABLE notifications
-            ADD CONSTRAINT fk_notification_invitation
-            FOREIGN KEY (invitation_id) REFERENCES invitations(id);
-    END IF;
-END $$;
+ALTER TABLE notifications
+    ADD CONSTRAINT fk_notification_invitation
+    FOREIGN KEY (invitation_id) REFERENCES invitations(id);
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_read_created
 ON notifications (user_id, is_read, created_at DESC);

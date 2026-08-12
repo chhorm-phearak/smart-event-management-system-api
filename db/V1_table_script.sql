@@ -1,40 +1,34 @@
 -- =====================================================
--- UUID EXTENSION
--- =====================================================
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- =====================================================
 -- ROLES
 -- =====================================================
 CREATE TABLE IF NOT EXISTS roles (
     role_id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Default roles
-INSERT INTO roles (role_id, name, description)
+INSERT IGNORE INTO roles (role_id, name, description)
 VALUES
     ('user_role', 'User', 'Regular user with standard permissions'),
-    ('admin_role', 'Administrator', 'System administrator with full access')
-ON CONFLICT (role_id) DO NOTHING;
+    ('admin_role', 'Administrator', 'System administrator with full access');
 
 -- =====================================================
 -- USERS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     email VARCHAR(150) NOT NULL UNIQUE,
-    password TEXT NOT NULL,
+    password VARCHAR(255) NOT NULL,
     gender VARCHAR(20),
     status VARCHAR(20) DEFAULT 'ACTIVE',
     role_id VARCHAR(50) NOT NULL DEFAULT 'user_role',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN DEFAULT FALSE,
     CONSTRAINT fk_users_role
         FOREIGN KEY (role_id) REFERENCES roles(role_id)
@@ -44,8 +38,8 @@ CREATE TABLE IF NOT EXISTS users (
 -- USER PROFILE
 -- =====================================================
 CREATE TABLE IF NOT EXISTS user_profile (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID UNIQUE NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL UNIQUE,
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     img_url TEXT,
@@ -54,8 +48,8 @@ CREATE TABLE IF NOT EXISTS user_profile (
     gender VARCHAR(20),
     address TEXT,
     date_of_birth DATE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_profile_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -64,17 +58,17 @@ CREATE TABLE IF NOT EXISTS user_profile (
 -- ORGANIZATION APPLICATIONS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS organization_applications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
     org_name VARCHAR(150) NOT NULL,
     org_type VARCHAR(50),
     contact VARCHAR(50),
     email VARCHAR(150),
     description TEXT,
     status VARCHAR(20) DEFAULT 'PENDING',
-    reviewed_by UUID,
-    reviewed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
+    reviewed_by CHAR(36),
+    reviewed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_org_app_user
         FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_org_app_reviewer
@@ -85,15 +79,15 @@ CREATE TABLE IF NOT EXISTS organization_applications (
 -- ORGANIZATIONS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS organizations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
     org_name VARCHAR(150) NOT NULL,
     org_type VARCHAR(50),
     contact VARCHAR(50),
     email VARCHAR(150),
     description TEXT,
     status VARCHAR(20) DEFAULT 'ACTIVE',
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_org_owner
         FOREIGN KEY (user_id) REFERENCES users(id)
 );
@@ -102,10 +96,10 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- ORGANIZATION MEMBERS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS organization_members (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL,
-    user_id UUID NOT NULL,
-    joined_at TIMESTAMP DEFAULT NOW(),
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    organization_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_org_member_org
         FOREIGN KEY (organization_id) REFERENCES organizations(id),
     CONSTRAINT fk_org_member_user
@@ -114,15 +108,15 @@ CREATE TABLE IF NOT EXISTS organization_members (
 );
 
 -- =====================================================
--- GROUPS
+-- GROUPS (`groups` is a reserved word in MySQL, always quote it)
 -- =====================================================
-CREATE TABLE IF NOT EXISTS groups (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL,
+CREATE TABLE IF NOT EXISTS `groups` (
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    organization_id CHAR(36) NOT NULL,
     name VARCHAR(150) NOT NULL,
     description TEXT,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_by CHAR(36) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_group_org
         FOREIGN KEY (organization_id) REFERENCES organizations(id),
     CONSTRAINT fk_group_creator
@@ -133,12 +127,12 @@ CREATE TABLE IF NOT EXISTS groups (
 -- GROUP MEMBERS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS group_members (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    group_id UUID NOT NULL,
-    user_id UUID NOT NULL,
-    joined_at TIMESTAMP DEFAULT NOW(),
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    group_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_group_member_group
-        FOREIGN KEY (group_id) REFERENCES groups(id),
+        FOREIGN KEY (group_id) REFERENCES `groups`(id),
     CONSTRAINT fk_group_member_user
         FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT uq_group_member UNIQUE (group_id, user_id)
@@ -148,28 +142,28 @@ CREATE TABLE IF NOT EXISTS group_members (
 -- EVENTS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL,
-    group_id UUID,
-    created_by UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    organization_id CHAR(36) NOT NULL,
+    group_id CHAR(36),
+    created_by CHAR(36) NOT NULL,
     title VARCHAR(200) NOT NULL,
     short_description TEXT,
     long_description TEXT,
     category VARCHAR(50),
-    start_time TIMESTAMP NOT NULL,
-    end_time TIMESTAMP NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
     duration INT,
     capacity INT,
     location VARCHAR(200),
     full_address TEXT,
     status VARCHAR(20) DEFAULT 'DRAFT',
     is_public BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_event_org
         FOREIGN KEY (organization_id) REFERENCES organizations(id),
     CONSTRAINT fk_event_group
-        FOREIGN KEY (group_id) REFERENCES groups(id),
+        FOREIGN KEY (group_id) REFERENCES `groups`(id),
     CONSTRAINT fk_event_creator
         FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -178,15 +172,15 @@ CREATE TABLE IF NOT EXISTS events (
 -- EVENT AGENDA
 -- =====================================================
 CREATE TABLE IF NOT EXISTS event_agenda (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    event_id CHAR(36) NOT NULL,
     title VARCHAR(150),
     description TEXT,
-    start_time TIMESTAMP,
-    end_time TIMESTAMP,
+    start_time DATETIME,
+    end_time DATETIME,
     duration INT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_agenda_event
         FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
@@ -195,11 +189,11 @@ CREATE TABLE IF NOT EXISTS event_agenda (
 -- EVENT REGISTRATIONS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS event_registrations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL,
-    user_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    event_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
     qr_code TEXT NOT NULL,
-    registered_at TIMESTAMP DEFAULT NOW(),
+    registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_registration_event
         FOREIGN KEY (event_id) REFERENCES events(id),
     CONSTRAINT fk_registration_user
@@ -211,10 +205,10 @@ CREATE TABLE IF NOT EXISTS event_registrations (
 -- ATTENDANCE LOGS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS attendance_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    registration_id UUID NOT NULL,
-    scanned_by UUID NOT NULL,
-    scanned_at TIMESTAMP DEFAULT NOW(),
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    registration_id CHAR(36) NOT NULL,
+    scanned_by CHAR(36) NOT NULL,
+    scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(20) DEFAULT 'CHECKED_IN',
     CONSTRAINT fk_attendance_registration
         FOREIGN KEY (registration_id) REFERENCES event_registrations(id),
@@ -227,11 +221,11 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
 -- EVENT STAFF
 -- =====================================================
 CREATE TABLE IF NOT EXISTS event_staff (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL,
-    organization_member_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    event_id CHAR(36) NOT NULL,
+    organization_member_id CHAR(36) NOT NULL,
     role VARCHAR(50),
-    assigned_at TIMESTAMP DEFAULT NOW(),
+    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_staff_event
         FOREIGN KEY (event_id) REFERENCES events(id),
     CONSTRAINT fk_staff_member
@@ -243,11 +237,11 @@ CREATE TABLE IF NOT EXISTS event_staff (
 -- EVENT IMAGES
 -- =====================================================
 CREATE TABLE IF NOT EXISTS event_images (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    event_id CHAR(36) NOT NULL,
     image_url TEXT NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_event_image
         FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
@@ -256,13 +250,13 @@ CREATE TABLE IF NOT EXISTS event_images (
 -- EVENT FEEDBACK
 -- =====================================================
 CREATE TABLE IF NOT EXISTS event_feedback (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL,
-    user_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    event_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
     rating INT CHECK (rating BETWEEN 1 AND 5),
     comment TEXT,
     is_read BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_feedback_event
         FOREIGN KEY (event_id) REFERENCES events(id),
     CONSTRAINT fk_feedback_user
@@ -274,13 +268,13 @@ CREATE TABLE IF NOT EXISTS event_feedback (
 -- NOTIFICATIONS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS notifications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL,
-    event_id UUID,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    event_id CHAR(36),
     title VARCHAR(150),
     message TEXT,
     is_read BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_notification_user
         FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_notification_event
@@ -291,12 +285,12 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- PASSWORD RESETS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS password_resets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL,
-    reset_token TEXT NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    reset_token VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
     used BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_password_reset_user 
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

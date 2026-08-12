@@ -1,8 +1,9 @@
 const db = require('../config/db');
+const { newId } = require('../utils/uuid');
 
 const findByEmail = async (email) => {
   const result = await db.query(
-    'SELECT * FROM users WHERE email = $1 AND is_deleted = FALSE',
+    'SELECT * FROM users WHERE email = ? AND is_deleted = FALSE',
     [email]
   );
   return result.rows[0];
@@ -10,46 +11,45 @@ const findByEmail = async (email) => {
 
 const findByUsername = async (username) => {
   const result = await db.query(
-    'SELECT * FROM users WHERE username = $1 AND is_deleted = FALSE',
+    'SELECT * FROM users WHERE username = ? AND is_deleted = FALSE',
     [username]
   );
   return result.rows[0];
 };
 
 const createUser = async ({ role_id, first_name, last_name, email, password, status = 'PENDING', email_verification_token = null, email_verification_expires_at = null }) => {
-  const result = await db.query(
-    `INSERT INTO users (role_id, first_name, last_name, email, password, status, email_verified, email_verification_token, email_verification_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8)
-     RETURNING *`,
-    [role_id, first_name, last_name, email, password, status, email_verification_token, email_verification_expires_at]
+  const userId = newId();
+  await db.query(
+    `INSERT INTO users (id, role_id, first_name, last_name, email, password, status, email_verified, email_verification_token, email_verification_expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?)`,
+    [userId, role_id, first_name, last_name, email, password, status, email_verification_token, email_verification_expires_at]
   );
-  return result.rows[0];
+  return await findById(userId);
 };
 
 const findById = async (id) => {
   const result = await db.query(
-    'SELECT * FROM users WHERE id = $1 AND is_deleted = FALSE',
+    'SELECT * FROM users WHERE id = ? AND is_deleted = FALSE',
     [id]
   );
   return result.rows[0];
 };
 
 const updatePassword = async (userId, hashedPassword) => {
-  await db.query('UPDATE users SET password = $1 WHERE id = $2', [
+  await db.query('UPDATE users SET password = ? WHERE id = ?', [
     hashedPassword,
     userId,
   ]);
 };
 
 const setEmailVerificationToken = async (userId, token, expiresAt) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE users 
-     SET email_verification_token = $1, email_verification_expires_at = $2, updated_at = NOW()
-     WHERE id = $3 AND is_deleted = FALSE
-     RETURNING *`,
+     SET email_verification_token = ?, email_verification_expires_at = ?, updated_at = NOW()
+     WHERE id = ? AND is_deleted = FALSE`,
     [token, expiresAt, userId]
   );
-  return result.rows[0];
+  return await findById(userId);
 };
 
 const findByVerificationToken = async (token) => {
@@ -63,7 +63,7 @@ const findByVerificationToken = async (token) => {
   
   const result = await db.query(
     `SELECT * FROM users 
-     WHERE email_verification_token = $1 
+     WHERE email_verification_token = ? 
      AND is_deleted = FALSE`,
     [token]
   );
@@ -72,33 +72,32 @@ const findByVerificationToken = async (token) => {
 };
 
 const verifyEmail = async (userId) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE users 
      SET email_verified = TRUE, 
          status = 'ACTIVE',
          email_verification_token = NULL, 
          email_verification_expires_at = NULL,
          updated_at = NOW()
-     WHERE id = $1 AND is_deleted = FALSE
-     RETURNING *`,
+     WHERE id = ? AND is_deleted = FALSE`,
     [userId]
   );
-  return result.rows[0];
+  return await findById(userId);
 };
 
 const createUserProfile = async (userId, { first_name, last_name, email, contact }) => {
-  const result = await db.query(
-    `INSERT INTO user_profile (user_id, first_name, last_name, email, contact)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (user_id) DO UPDATE SET
-       first_name = EXCLUDED.first_name,
-       last_name = EXCLUDED.last_name,
-       email = EXCLUDED.email,
-       contact = EXCLUDED.contact,
-       updated_at = NOW()
-     RETURNING *`,
-    [userId, first_name, last_name, email, contact]
+  await db.query(
+    `INSERT INTO user_profile (id, user_id, first_name, last_name, email, contact)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       first_name = VALUES(first_name),
+       last_name = VALUES(last_name),
+       email = VALUES(email),
+       contact = VALUES(contact),
+       updated_at = NOW()`,
+    [newId(), userId, first_name, last_name, email, contact]
   );
+  const result = await db.query('SELECT * FROM user_profile WHERE user_id = ?', [userId]);
   return result.rows[0];
 };
 
@@ -120,56 +119,54 @@ const updateProfile = async (userId, {
     // Update users table
     const userUpdates = [];
     const userValues = [];
-    let paramCount = 1;
 
     if (first_name !== undefined) {
-      userUpdates.push(`first_name = $${paramCount++}`);
+      userUpdates.push('first_name = ?');
       userValues.push(first_name);
     }
     if (last_name !== undefined) {
-      userUpdates.push(`last_name = $${paramCount++}`);
+      userUpdates.push('last_name = ?');
       userValues.push(last_name);
     }
     if (email !== undefined) {
-      userUpdates.push(`email = $${paramCount++}`);
+      userUpdates.push('email = ?');
       userValues.push(email);
     }
 
     if (userUpdates.length > 0) {
       userValues.push(userId);
-      const userQuery = `UPDATE users SET ${userUpdates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} AND is_deleted = FALSE RETURNING *`;
+      const userQuery = `UPDATE users SET ${userUpdates.join(', ')}, updated_at = NOW() WHERE id = ? AND is_deleted = FALSE`;
       await client.query(userQuery, userValues);
     }
 
     // Update user_profile table
     const profileUpdates = [];
     const profileValues = [];
-    paramCount = 1;
 
     if (img_url !== undefined) {
-      profileUpdates.push(`img_url = $${paramCount++}`);
+      profileUpdates.push('img_url = ?');
       profileValues.push(img_url);
     }
     if (contact !== undefined) {
-      profileUpdates.push(`contact = $${paramCount++}`);
+      profileUpdates.push('contact = ?');
       profileValues.push(contact);
     }
     if (address !== undefined) {
-      profileUpdates.push(`address = $${paramCount++}`);
+      profileUpdates.push('address = ?');
       profileValues.push(address);
     }
     if (date_of_birth !== undefined) {
-      profileUpdates.push(`date_of_birth = $${paramCount++}`);
+      profileUpdates.push('date_of_birth = ?');
       profileValues.push(date_of_birth);
     }
     if (gender !== undefined) {
-      profileUpdates.push(`gender = $${paramCount++}`);
+      profileUpdates.push('gender = ?');
       profileValues.push(gender);
     }
 
     if (profileUpdates.length > 0) {
       profileValues.push(userId);
-      const profileQuery = `UPDATE user_profile SET ${profileUpdates.join(', ')}, updated_at = NOW() WHERE user_id = $${paramCount}`;
+      const profileQuery = `UPDATE user_profile SET ${profileUpdates.join(', ')}, updated_at = NOW() WHERE user_id = ?`;
       await client.query(profileQuery, profileValues);
     }
 
@@ -205,7 +202,7 @@ const getUserProfile = async (userId) => {
       up.updated_at as profile_updated_at
     FROM users u
     LEFT JOIN user_profile up ON u.id = up.user_id
-    WHERE u.id = $1 AND u.is_deleted = FALSE`,
+    WHERE u.id = ? AND u.is_deleted = FALSE`,
     [userId]
   );
   return result.rows[0];
@@ -217,21 +214,18 @@ const listUsers = async ({ search, limit = 10, offset = 0 } = {}) => {
 
   if (search) {
     values.push(`%${search}%`);
-    whereClause += ` AND full_name ILIKE $${values.length}`;
+    whereClause += ' AND full_name LIKE ?';
   }
 
-  values.push(limit);
-  values.push(offset);
-
-  const limitIndex = values.length - 1;
-  const offsetIndex = values.length;
+  values.push(Number(limit));
+  values.push(Number(offset));
 
   const result = await db.query(
     `SELECT id, full_name, first_name, last_name, email, status, role_id
      FROM users
      WHERE ${whereClause}
      ORDER BY created_at DESC
-     LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+     LIMIT ? OFFSET ?`,
     values
   );
 
@@ -245,10 +239,10 @@ const searchUsersByEmail = async ({ email, limit = 10, offset = 0 } = {}) => {
   const result = await db.query(
     `SELECT id, full_name, first_name, last_name, email, status, role_id
      FROM users
-     WHERE is_deleted = FALSE AND email ILIKE $1
+     WHERE is_deleted = FALSE AND email LIKE ?
      ORDER BY created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [`%${email.trim()}%`, limit, offset]
+     LIMIT ? OFFSET ?`,
+    [`%${email.trim()}%`, Number(limit), Number(offset)]
   );
   return result.rows;
 };

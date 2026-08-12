@@ -12,7 +12,7 @@ ADD COLUMN IF NOT EXISTS scope VARCHAR(20) NOT NULL DEFAULT 'group'
 
 -- Make group_id nullable for global messages
 ALTER TABLE chat_messages 
-ALTER COLUMN group_id DROP NOT NULL;
+MODIFY COLUMN group_id CHAR(36) NULL;
 
 -- Update existing records to have scope='group'
 UPDATE chat_messages 
@@ -77,8 +77,7 @@ SELECT
     created_at,
     updated_at
 FROM chat_messages 
-WHERE scope = 'global' AND is_deleted = FALSE
-ORDER BY created_at DESC;
+WHERE scope = 'global' AND is_deleted = FALSE;
 
 -- Create view for group messages
 CREATE OR REPLACE VIEW group_chat_messages AS
@@ -94,5 +93,4 @@ SELECT
     created_at,
     updated_at
 FROM chat_messages 
-WHERE scope = 'group' AND is_deleted = FALSE
-ORDER BY created_at DESC;
+WHERE scope = 'group' AND is_deleted = FALSE;

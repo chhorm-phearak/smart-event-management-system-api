@@ -321,7 +321,7 @@ const markAllRead = async (req, res) => {
     if (messageIds.length > 0) {
       try {
         const sendersResult = await require('../config/db').query(
-          `SELECT id, sender_id FROM chat_messages WHERE id = ANY($1::uuid[])`,
+          `SELECT id, sender_id FROM chat_messages WHERE id IN (?)`,
           [messageIds]
         );
         const senderToMsgIds = new Map();

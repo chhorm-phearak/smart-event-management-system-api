@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { newId } = require('../utils/uuid');
 
 const create = async ({
   target_type,
@@ -10,14 +11,15 @@ const create = async ({
   role = null,
   message = null,
 }) => {
-  const result = await db.query(
+  const invitationId = newId();
+  await db.query(
     `INSERT INTO invitations (
-      target_type, organization_id, group_id, invited_user_id, invited_email,
+      id, target_type, organization_id, group_id, invited_user_id, invited_email,
       invited_by, role, message, status
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
-    RETURNING *`,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
     [
+      invitationId,
       target_type,
       organization_id,
       group_id,
@@ -28,7 +30,7 @@ const create = async ({
       message,
     ]
   );
-  return result.rows[0];
+  return await findById(invitationId);
 };
 
 const findById = async (id) => {
@@ -38,8 +40,8 @@ const findById = async (id) => {
             g.name AS group_name
      FROM invitations i
      LEFT JOIN organizations o ON i.organization_id = o.id
-     LEFT JOIN groups g ON i.group_id = g.id
-     WHERE i.id = $1 AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)`,
+     LEFT JOIN \`groups\` g ON i.group_id = g.id
+     WHERE i.id = ? AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)`,
     [id]
   );
   return result.rows[0];
@@ -47,28 +49,28 @@ const findById = async (id) => {
 
 const getReceivedByUserId = async (userId, { page = 1, limit = 20, status = null } = {}) => {
   const offset = (page - 1) * limit;
-  let where = 'i.invited_user_id = $1 AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)';
+  let where = 'i.invited_user_id = ? AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)';
   const params = [userId];
   if (status) {
     params.push(status);
-    where += ` AND i.status = $${params.length}`;
+    where += ' AND i.status = ?';
   }
   const countResult = await db.query(
     `SELECT COUNT(*) AS total FROM invitations i WHERE ${where}`,
     params
   );
   const total = parseInt(countResult.rows[0].total, 10);
-  params.push(limit, offset);
+  params.push(Number(limit), Number(offset));
   const dataResult = await db.query(
     `SELECT i.*, o.org_name AS organization_name, g.name AS group_name,
             u_inviter.first_name AS inviter_first_name, u_inviter.last_name AS inviter_last_name, u_inviter.email AS inviter_email
      FROM invitations i
      LEFT JOIN organizations o ON i.organization_id = o.id
-     LEFT JOIN groups g ON i.group_id = g.id
+     LEFT JOIN \`groups\` g ON i.group_id = g.id
      LEFT JOIN users u_inviter ON i.invited_by = u_inviter.id
      WHERE ${where}
      ORDER BY i.created_at DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+     LIMIT ? OFFSET ?`,
     params
   );
   return {
@@ -79,28 +81,28 @@ const getReceivedByUserId = async (userId, { page = 1, limit = 20, status = null
 
 const getSentByUserId = async (userId, { page = 1, limit = 20, status = null } = {}) => {
   const offset = (page - 1) * limit;
-  let where = 'i.invited_by = $1 AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)';
+  let where = 'i.invited_by = ? AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)';
   const params = [userId];
   if (status) {
     params.push(status);
-    where += ` AND i.status = $${params.length}`;
+    where += ' AND i.status = ?';
   }
   const countResult = await db.query(
     `SELECT COUNT(*) AS total FROM invitations i WHERE ${where}`,
     params
   );
   const total = parseInt(countResult.rows[0].total, 10);
-  params.push(limit, offset);
+  params.push(Number(limit), Number(offset));
   const dataResult = await db.query(
     `SELECT i.*, o.org_name AS organization_name, g.name AS group_name,
             u.first_name AS invited_first_name, u.last_name AS invited_last_name, u.email AS invited_email
      FROM invitations i
      LEFT JOIN organizations o ON i.organization_id = o.id
-     LEFT JOIN groups g ON i.group_id = g.id
+     LEFT JOIN \`groups\` g ON i.group_id = g.id
      LEFT JOIN users u ON i.invited_user_id = u.id
      WHERE ${where}
      ORDER BY i.created_at DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+     LIMIT ? OFFSET ?`,
     params
   );
   return {
@@ -117,30 +119,34 @@ const getSentByUserId = async (userId, { page = 1, limit = 20, status = null } =
  * @param {{ byInviter?: boolean }} [opts] - If { byInviter: true }, restrict update to invited_by = userId (for cancel).
  */
 const updateStatus = async (id, status, userId = null, opts = {}) => {
-  let query = `UPDATE invitations SET status = $1, updated_at = NOW()`;
-  const values = [status];
+  let query = `UPDATE invitations SET status = ?, updated_at = NOW()`;
+  let where = ` WHERE id = ? AND (is_deleted = FALSE OR is_deleted IS NULL)`;
+  const whereValues = [id];
   if (status === 'ACCEPTED' || status === 'REJECTED') {
     query += `, responded_at = NOW()`;
   }
-  query += ` WHERE id = $2 AND (is_deleted = FALSE OR is_deleted IS NULL)`;
-  values.push(id);
   if (opts.byInviter && userId != null) {
-    values.push(userId);
-    query += ` AND invited_by = $${values.length}`;
+    whereValues.push(userId);
+    where += ' AND invited_by = ?';
   } else if (userId != null) {
-    values.push(userId);
-    query += ` AND invited_user_id = $${values.length}`;
+    whereValues.push(userId);
+    where += ' AND invited_user_id = ?';
   }
-  query += ` RETURNING *`;
-  const result = await db.query(query, values);
-  return result.rows[0];
+
+  const existing = await db.query(`SELECT id FROM invitations${where}`, whereValues);
+  if (existing.rows.length === 0) {
+    return undefined;
+  }
+
+  await db.query(query + where, [status, ...whereValues]);
+  return await findById(id);
 };
 
 const findPendingByTargetAndUser = async (targetType, targetId, invitedUserId) => {
   const col = targetType === 'ORGANIZATION' ? 'organization_id' : 'group_id';
   const result = await db.query(
     `SELECT * FROM invitations
-     WHERE target_type = $1 AND ${col} = $2 AND invited_user_id = $3 AND status = 'PENDING'
+     WHERE target_type = ? AND ${col} = ? AND invited_user_id = ? AND status = 'PENDING'
        AND (is_deleted = FALSE OR is_deleted IS NULL)`,
     [targetType, targetId, invitedUserId]
   );

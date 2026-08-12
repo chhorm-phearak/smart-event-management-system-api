@@ -3,9 +3,9 @@ const db = require('../config/db');
 const getEventAdminStats = async () => {
   const result = await db.query(`
     SELECT
-      COUNT(*)::int AS total_events,
-      COUNT(*) FILTER (WHERE e.start_time >= NOW())::int AS upcoming_events,
-      COUNT(*) FILTER (WHERE e.start_time < NOW())::int AS past_events
+      COUNT(*) AS total_events,
+      COALESCE(SUM(e.start_time >= NOW()), 0) AS upcoming_events,
+      COALESCE(SUM(e.start_time < NOW()), 0) AS past_events
     FROM events e
     WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
   `);
@@ -25,22 +25,23 @@ const getAllEvents = async ({ search, status, category, organization_id, limit =
 
   if (search) {
     values.push(`%${search}%`);
-    conditions.push(`(e.title ILIKE $${values.length} OR e.short_description ILIKE $${values.length})`);
+    values.push(`%${search}%`);
+    conditions.push('(e.title LIKE ? OR e.short_description LIKE ?)');
   }
 
   if (status) {
     values.push(status);
-    conditions.push(`e.status = $${values.length}`);
+    conditions.push('e.status = ?');
   }
 
   if (category) {
     values.push(category);
-    conditions.push(`e.category = $${values.length}`);
+    conditions.push('e.category = ?');
   }
 
   if (organization_id) {
     values.push(organization_id);
-    conditions.push(`e.organization_id = $${values.length}`);
+    conditions.push('e.organization_id = ?');
   }
 
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
@@ -53,8 +54,8 @@ const getAllEvents = async ({ search, status, category, organization_id, limit =
   const total = parseInt(countResult.rows[0].total, 10);
 
   // Get events with pagination
-  values.push(limit);
-  values.push(offset);
+  values.push(Number(limit));
+  values.push(Number(offset));
 
   const result = await db.query(
     `SELECT 
@@ -83,16 +84,16 @@ const getAllEvents = async ({ search, status, category, organization_id, limit =
       COALESCE(regs.registered_count, 0) AS registered_count
     FROM events e
     LEFT JOIN organizations o ON e.organization_id = o.id
-    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN \`groups\` g ON e.group_id = g.id
     LEFT JOIN users u ON e.created_by = u.id
     LEFT JOIN (
-      SELECT event_id, COUNT(*)::int AS registered_count
+      SELECT event_id, COUNT(*) AS registered_count
       FROM event_registrations
       GROUP BY event_id
     ) regs ON regs.event_id = e.id
     ${whereClause}
     ORDER BY e.created_at DESC
-    LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    LIMIT ? OFFSET ?`,
     values
   );
 
@@ -132,32 +133,34 @@ const getEventById = async (eventId) => {
       COALESCE(regs.registered_count, 0) AS registered_count
     FROM events e
     LEFT JOIN organizations o ON e.organization_id = o.id
-    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN \`groups\` g ON e.group_id = g.id
     LEFT JOIN users u ON e.created_by = u.id
     LEFT JOIN (
-      SELECT event_id, COUNT(*)::int AS registered_count
+      SELECT event_id, COUNT(*) AS registered_count
       FROM event_registrations
       GROUP BY event_id
     ) regs ON regs.event_id = e.id
-    WHERE e.id = $1 AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
+    WHERE e.id = ? AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [eventId]
   );
   return result.rows[0];
 };
 
 const updateEventStatus = async (eventId, status) => {
-  const result = await db.query(
-    `UPDATE events SET status = $1, updated_at = NOW() WHERE id = $2 AND (is_deleted = FALSE OR is_deleted IS NULL) RETURNING *`,
+  await db.query(
+    `UPDATE events SET status = ?, updated_at = NOW() WHERE id = ? AND (is_deleted = FALSE OR is_deleted IS NULL)`,
     [status, eventId]
   );
+  const result = await db.query('SELECT * FROM events WHERE id = ?', [eventId]);
   return result.rows[0];
 };
 
 const deleteEvent = async (eventId) => {
-  const result = await db.query(
-    `UPDATE events SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+  await db.query(
+    `UPDATE events SET is_deleted = TRUE, updated_at = NOW() WHERE id = ?`,
     [eventId]
   );
+  const result = await db.query('SELECT * FROM events WHERE id = ?', [eventId]);
   return result.rows[0];
 };
 
