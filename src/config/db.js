@@ -34,8 +34,22 @@ const toResult = (result) => {
   };
 };
 
+// mysql2 rejects `undefined` bind parameters and expands an empty array to an
+// empty `IN ()` list, so both are normalised to SQL NULL before querying.
+const normalizeParams = (params) => {
+  if (params === undefined || params === null) return [];
+  if (!Array.isArray(params)) return params;
+  return params.map((param) => {
+    if (param === undefined) return null;
+    if (Array.isArray(param)) {
+      return param.length === 0 ? [null] : param.map((v) => (v === undefined ? null : v));
+    }
+    return param;
+  });
+};
+
 const query = async (text, params = []) => {
-  const [result] = await pool.query(text, params);
+  const [result] = await pool.query(text, normalizeParams(params));
   return toResult(result);
 };
 
@@ -59,7 +73,7 @@ const getClient = async () => {
         return { rows: [], rowCount: 0 };
       }
 
-      const [result] = await connection.query(text, params);
+      const [result] = await connection.query(text, normalizeParams(params));
       return toResult(result);
     },
     release: () => connection.release(),

@@ -12,3 +12,6 @@ ALTER TABLE event_images               ADD COLUMN IF NOT EXISTS is_deleted BOOLE
 ALTER TABLE event_feedback             ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notifications              ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE files                      ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Soft deletes stamp updated_at, so the column has to exist wherever they are used.
+ALTER TABLE event_images               ADD COLUMN IF NOT EXISTS updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;

@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS event_images (
     image_url TEXT NOT NULL,
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_event_image
         FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
