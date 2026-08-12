@@ -9,7 +9,7 @@ ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'REGISTERED'
     COMMENT 'Attendee registration status (REGISTERED, CHECKED_IN, CANCELLED)';
 
 ALTER TABLE event_registrations
-ADD CONSTRAINT chk_event_registrations_status
+ADD CONSTRAINT IF NOT EXISTS chk_event_registrations_status
 CHECK (status IN ('REGISTERED', 'CHECKED_IN', 'CANCELLED'));
 
 -- Ensure existing rows fall back to default

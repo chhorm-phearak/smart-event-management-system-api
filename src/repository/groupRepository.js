@@ -81,6 +81,27 @@ const deleteGroup = async (groupId) => {
     await db.query('DELETE FROM events WHERE id = ?', [eventId]);
   }
 
+  // Remove remaining rows referencing the group
+  await db.query(
+    `DELETE FROM chat_message_reads
+     WHERE message_id IN (SELECT id FROM (SELECT id FROM chat_messages WHERE group_id = ?) AS msgs)`,
+    [groupId]
+  );
+  await db.query(
+    `DELETE FROM chat_message_files
+     WHERE message_id IN (SELECT id FROM (SELECT id FROM chat_messages WHERE group_id = ?) AS msgs)`,
+    [groupId]
+  );
+  await db.query('DELETE FROM chat_messages WHERE group_id = ?', [groupId]);
+  await db.query(
+    `DELETE FROM notifications
+     WHERE invitation_id IN (SELECT id FROM (SELECT id FROM invitations WHERE group_id = ?) AS invs)`,
+    [groupId]
+  );
+  await db.query('DELETE FROM notifications WHERE group_id = ?', [groupId]);
+  await db.query('DELETE FROM invitations WHERE group_id = ?', [groupId]);
+  await db.query('DELETE FROM invite_links WHERE group_id = ?', [groupId]);
+
   const existing = await findGroupById(groupId);
   await db.query('DELETE FROM `groups` WHERE id = ?', [groupId]);
   return existing;

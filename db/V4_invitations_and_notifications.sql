@@ -71,19 +71,19 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at DATETIME NOT NULL 
 
 ALTER TABLE notifications
     ADD CONSTRAINT fk_notification_actor_user
-    FOREIGN KEY (actor_user_id) REFERENCES users(id);
+    FOREIGN KEY IF NOT EXISTS (actor_user_id) REFERENCES users(id);
 
 ALTER TABLE notifications
     ADD CONSTRAINT fk_notification_org
-    FOREIGN KEY (organization_id) REFERENCES organizations(id);
+    FOREIGN KEY IF NOT EXISTS (organization_id) REFERENCES organizations(id);
 
 ALTER TABLE notifications
     ADD CONSTRAINT fk_notification_group
-    FOREIGN KEY (group_id) REFERENCES `groups`(id);
+    FOREIGN KEY IF NOT EXISTS (group_id) REFERENCES `groups`(id);
 
 ALTER TABLE notifications
     ADD CONSTRAINT fk_notification_invitation
-    FOREIGN KEY (invitation_id) REFERENCES invitations(id);
+    FOREIGN KEY IF NOT EXISTS (invitation_id) REFERENCES invitations(id);
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_read_created
 ON notifications (user_id, is_read, created_at DESC);

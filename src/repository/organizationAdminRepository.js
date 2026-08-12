@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { deleteGroup } = require('./groupRepository');
 
 const getOrganizationAdminStats = async () => {
   const result = await db.query(`
@@ -115,6 +116,37 @@ const updateOrganizationStatus = async (organizationId, status) => {
 
 const deleteOrganization = async (organizationId) => {
   const existing = await db.query('SELECT * FROM organizations WHERE id = ?', [organizationId]);
+
+  const groupsResult = await db.query('SELECT id FROM `groups` WHERE organization_id = ?', [organizationId]);
+  for (const group of groupsResult.rows) {
+    await deleteGroup(group.id);
+  }
+
+  const eventsResult = await db.query('SELECT id FROM events WHERE organization_id = ?', [organizationId]);
+  for (const event of eventsResult.rows) {
+    await db.query(
+      `DELETE FROM attendance_logs
+       WHERE registration_id IN (SELECT id FROM (SELECT id FROM event_registrations WHERE event_id = ?) AS regs)`,
+      [event.id]
+    );
+    await db.query('DELETE FROM event_agenda WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_staff WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_feedback WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM notifications WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_images WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_registrations WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM events WHERE id = ?', [event.id]);
+  }
+
+  await db.query(
+    `DELETE FROM notifications
+     WHERE invitation_id IN (SELECT id FROM (SELECT id FROM invitations WHERE organization_id = ?) AS invs)`,
+    [organizationId]
+  );
+  await db.query('DELETE FROM notifications WHERE organization_id = ?', [organizationId]);
+  await db.query('DELETE FROM invitations WHERE organization_id = ?', [organizationId]);
+  await db.query('DELETE FROM organization_members WHERE organization_id = ?', [organizationId]);
+
   await db.query(`DELETE FROM organizations WHERE id = ?`, [organizationId]);
   return existing.rows[0];
 };

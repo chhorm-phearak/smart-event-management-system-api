@@ -176,7 +176,7 @@ const getGroupInviteLinks = async (groupId, organizationId, options = {}) => {
   }
 
   // Check if organization owns the group
-  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group_id);
+  const isOwner = await isOrganizationOwnerOfGroup(organizationId, groupId);
   if (!isOwner) {
     throw new Error('You do not have permission to view invite links for this group');
   }
@@ -195,7 +195,7 @@ const updateInviteLink = async (linkId, organizationId, updates) => {
 
   // Check permissions
   const group = await findGroupById(inviteLink.group_id);
-  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.group_id);
+  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.id);
   if (!isOwner) {
     throw new Error('You do not have permission to update this invite link');
   }
@@ -214,7 +214,7 @@ const deleteInviteLink = async (linkId, organizationId) => {
 
   // Check permissions
   const group = await findGroupById(inviteLink.group_id);
-  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.group_id);
+  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.id);
   if (!isOwner) {
     throw new Error('You do not have permission to delete this invite link');
   }
