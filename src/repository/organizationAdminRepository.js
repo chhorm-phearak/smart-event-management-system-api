@@ -1,12 +1,13 @@
 const db = require('../config/db');
+const { deleteGroup } = require('./groupRepository');
 
 const getOrganizationAdminStats = async () => {
   const result = await db.query(`
     SELECT
-      COUNT(*)::int AS total_organizers,
-      COUNT(*) FILTER (WHERE o.status = 'ACTIVE')::int AS total_active,
-      COUNT(*) FILTER (WHERE o.status = 'INACTIVE')::int AS total_inactive,
-      COUNT(*) FILTER (WHERE o.status = 'SUSPENDED')::int AS total_suspended
+      COUNT(*) AS total_organizers,
+      COALESCE(SUM(o.status = 'ACTIVE'), 0) AS total_active,
+      COALESCE(SUM(o.status = 'INACTIVE'), 0) AS total_inactive,
+      COALESCE(SUM(o.status = 'SUSPENDED'), 0) AS total_suspended
     FROM organizations o
   `);
   const row = result.rows[0];
@@ -24,17 +25,18 @@ const getAllOrganizations = async ({ search, status, org_type, limit = 10, offse
 
   if (search) {
     values.push(`%${search}%`);
-    conditions.push(`(o.org_name ILIKE $${values.length} OR o.email ILIKE $${values.length})`);
+    values.push(`%${search}%`);
+    conditions.push('(o.org_name LIKE ? OR o.email LIKE ?)');
   }
 
   if (status) {
     values.push(status);
-    conditions.push(`o.status = $${values.length}`);
+    conditions.push('o.status = ?');
   }
 
   if (org_type) {
     values.push(org_type);
-    conditions.push(`o.org_type = $${values.length}`);
+    conditions.push('o.org_type = ?');
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -47,8 +49,8 @@ const getAllOrganizations = async ({ search, status, org_type, limit = 10, offse
   const total = parseInt(countResult.rows[0].total, 10);
 
   // Get organizations with pagination
-  values.push(limit);
-  values.push(offset);
+  values.push(Number(limit));
+  values.push(Number(offset));
 
   const result = await db.query(
     `SELECT 
@@ -68,7 +70,7 @@ const getAllOrganizations = async ({ search, status, org_type, limit = 10, offse
     LEFT JOIN users u ON o.user_id = u.id
     ${whereClause}
     ORDER BY o.created_at DESC
-    LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    LIMIT ? OFFSET ?`,
     values
   );
 
@@ -97,26 +99,56 @@ const getOrganizationById = async (organizationId) => {
       u.email as owner_email
     FROM organizations o
     LEFT JOIN users u ON o.user_id = u.id
-    WHERE o.id = $1`,
+    WHERE o.id = ?`,
     [organizationId]
   );
   return result.rows[0];
 };
 
 const updateOrganizationStatus = async (organizationId, status) => {
-  const result = await db.query(
-    `UPDATE organizations SET status = $1 WHERE id = $2 RETURNING *`,
+  await db.query(
+    `UPDATE organizations SET status = ? WHERE id = ?`,
     [status, organizationId]
   );
+  const result = await db.query('SELECT * FROM organizations WHERE id = ?', [organizationId]);
   return result.rows[0];
 };
 
 const deleteOrganization = async (organizationId) => {
-  const result = await db.query(
-    `DELETE FROM organizations WHERE id = $1 RETURNING *`,
+  const existing = await db.query('SELECT * FROM organizations WHERE id = ?', [organizationId]);
+
+  const groupsResult = await db.query('SELECT id FROM `groups` WHERE organization_id = ?', [organizationId]);
+  for (const group of groupsResult.rows) {
+    await deleteGroup(group.id);
+  }
+
+  const eventsResult = await db.query('SELECT id FROM events WHERE organization_id = ?', [organizationId]);
+  for (const event of eventsResult.rows) {
+    await db.query(
+      `DELETE FROM attendance_logs
+       WHERE registration_id IN (SELECT id FROM (SELECT id FROM event_registrations WHERE event_id = ?) AS regs)`,
+      [event.id]
+    );
+    await db.query('DELETE FROM event_agenda WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_staff WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_feedback WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM notifications WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_images WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM event_registrations WHERE event_id = ?', [event.id]);
+    await db.query('DELETE FROM events WHERE id = ?', [event.id]);
+  }
+
+  await db.query(
+    `DELETE FROM notifications
+     WHERE invitation_id IN (SELECT id FROM (SELECT id FROM invitations WHERE organization_id = ?) AS invs)`,
     [organizationId]
   );
-  return result.rows[0];
+  await db.query('DELETE FROM notifications WHERE organization_id = ?', [organizationId]);
+  await db.query('DELETE FROM invitations WHERE organization_id = ?', [organizationId]);
+  await db.query('DELETE FROM organization_members WHERE organization_id = ?', [organizationId]);
+
+  await db.query(`DELETE FROM organizations WHERE id = ?`, [organizationId]);
+  return existing.rows[0];
 };
 
 module.exports = {

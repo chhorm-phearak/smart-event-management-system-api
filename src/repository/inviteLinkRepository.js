@@ -1,4 +1,49 @@
+const crypto = require('crypto');
 const db = require('../config/db');
+const { newId } = require('../utils/uuid');
+
+const TOKEN_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+const generateToken = () => {
+  const bytes = crypto.randomBytes(64);
+  let token = '';
+  for (const byte of bytes) {
+    token += TOKEN_CHARS[byte % TOKEN_CHARS.length];
+  }
+  return token;
+};
+
+/**
+ * Replaces the Postgres update_expired_links() function: links that ran out of
+ * uses or passed their expiry date are flagged as expired.
+ */
+const expireStaleLinks = async () => {
+  await db.query(
+    `UPDATE invite_links
+     SET is_expired = TRUE, is_active = FALSE, updated_at = NOW()
+     WHERE is_expired = FALSE
+       AND (
+         (expires_at IS NOT NULL AND expires_at < NOW()) OR
+         (current_uses >= max_uses)
+       )`
+  );
+};
+
+/**
+ * Replaces the Postgres expire_existing_group_links() trigger: only the newest
+ * link of a group stays active.
+ */
+const expireOtherGroupLinks = async (groupId, keepLinkId) => {
+  await db.query(
+    `UPDATE invite_links
+     SET is_expired = TRUE, is_active = FALSE, updated_at = NOW()
+     WHERE group_id = ?
+       AND is_active = TRUE
+       AND is_expired = FALSE
+       AND id <> ?`,
+    [groupId, keepLinkId]
+  );
+};
 
 const create = async ({
   group_id,
@@ -8,21 +53,26 @@ const create = async ({
   message = null,
   token = null
 }) => {
-  const result = await db.query(
+  const linkId = newId();
+  const linkToken = token || generateToken();
+
+  await db.query(
     `INSERT INTO invite_links (
-      token, group_id, created_by, expires_at, max_uses, message
+      id, token, group_id, created_by, expires_at, max_uses, message
     )
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING *`,
-    [token, group_id, created_by, expires_at, max_uses, message]
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [linkId, linkToken, group_id, created_by, expires_at, max_uses, message]
   );
-  return result.rows[0];
+
+  await expireOtherGroupLinks(group_id, linkId);
+
+  return await findById(linkId);
 };
 
 const findByToken = async (token) => {
   // First update expired links
-  await db.query('SELECT update_expired_links()');
-  
+  await expireStaleLinks();
+
   const result = await db.query(
     `SELECT il.*, 
             g.name AS group_name, 
@@ -30,9 +80,9 @@ const findByToken = async (token) => {
             o.org_name AS organization_name,
             o.id AS organization_id
      FROM invite_links il
-     JOIN groups g ON il.group_id = g.id
+     JOIN \`groups\` g ON il.group_id = g.id
      JOIN organizations o ON il.created_by = o.id
-     WHERE il.token = $1 AND il.is_active = TRUE AND il.is_expired = FALSE`,
+     WHERE il.token = ? AND il.is_active = TRUE AND il.is_expired = FALSE`,
     [token]
   );
   return result.rows[0];
@@ -45,9 +95,9 @@ const findById = async (id) => {
             o.org_name AS organization_name,
             o.id AS organization_id
      FROM invite_links il
-     JOIN groups g ON il.group_id = g.id
+     JOIN \`groups\` g ON il.group_id = g.id
      JOIN organizations o ON il.created_by = o.id
-     WHERE il.id = $1`,
+     WHERE il.id = ?`,
     [id]
   );
   return result.rows[0];
@@ -55,27 +105,27 @@ const findById = async (id) => {
 
 const findByGroupId = async (groupId, { page = 1, limit = 20 } = {}) => {
   const offset = (page - 1) * limit;
-  
+
   const countResult = await db.query(
     `SELECT COUNT(*) AS total 
      FROM invite_links 
-     WHERE group_id = $1`,
+     WHERE group_id = ?`,
     [groupId]
   );
   const total = parseInt(countResult.rows[0].total, 10);
-  
+
   const dataResult = await db.query(
     `SELECT il.*,
             o.org_name AS organization_name,
             o.id AS organization_id
      FROM invite_links il
      JOIN organizations o ON il.created_by = o.id
-     WHERE il.group_id = $1
+     WHERE il.group_id = ?
      ORDER BY il.created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [groupId, limit, offset]
+     LIMIT ? OFFSET ?`,
+    [groupId, Number(limit), Number(offset)]
   );
-  
+
   return {
     inviteLinks: dataResult.rows,
     pagination: { page: parseInt(page, 10), limit: parseInt(limit, 10), total, totalPages: Math.ceil(total / limit) || 1 }
@@ -83,7 +133,7 @@ const findByGroupId = async (groupId, { page = 1, limit = 20 } = {}) => {
 };
 
 const updateUsage = async (token) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE invite_links 
      SET current_uses = current_uses + 1,
          is_active = CASE 
@@ -91,33 +141,32 @@ const updateUsage = async (token) => {
            ELSE is_active 
          END,
          updated_at = NOW()
-     WHERE token = $1 AND is_active = TRUE
-     RETURNING *`,
+     WHERE token = ? AND is_active = TRUE`,
     [token]
   );
+  const result = await db.query('SELECT * FROM invite_links WHERE token = ?', [token]);
   return result.rows[0];
 };
 
 const update = async (id, updates) => {
   const fields = [];
   const values = [];
-  let paramCount = 1;
 
   // Build dynamic update query
   if (updates.expires_at !== undefined) {
-    fields.push(`expires_at = $${paramCount++}`);
+    fields.push('expires_at = ?');
     values.push(updates.expires_at);
   }
   if (updates.max_uses !== undefined) {
-    fields.push(`max_uses = $${paramCount++}`);
+    fields.push('max_uses = ?');
     values.push(updates.max_uses);
   }
   if (updates.message !== undefined) {
-    fields.push(`message = $${paramCount++}`);
+    fields.push('message = ?');
     values.push(updates.message);
   }
   if (updates.is_active !== undefined) {
-    fields.push(`is_active = $${paramCount++}`);
+    fields.push('is_active = ?');
     values.push(updates.is_active);
   }
 
@@ -126,24 +175,21 @@ const update = async (id, updates) => {
   }
 
   values.push(id);
-  
-  const result = await db.query(
+
+  await db.query(
     `UPDATE invite_links 
      SET ${fields.join(', ')}, updated_at = NOW()
-     WHERE id = $${paramCount}
-     RETURNING *`,
+     WHERE id = ?`,
     values
   );
-  
-  return result.rows[0];
+
+  return await findById(id);
 };
 
 const remove = async (id) => {
-  const result = await db.query(
-    `DELETE FROM invite_links WHERE id = $1 RETURNING *`,
-    [id]
-  );
-  return result.rows[0];
+  const existing = await findById(id);
+  await db.query(`DELETE FROM invite_links WHERE id = ?`, [id]);
+  return existing;
 };
 
 const isValidToken = async (token) => {
@@ -176,5 +222,6 @@ module.exports = {
   updateUsage,
   update,
   remove,
-  isValidToken
+  isValidToken,
+  expireStaleLinks
 };

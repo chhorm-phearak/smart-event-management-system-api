@@ -3,10 +3,10 @@ const db = require('../config/db');
 const getOrganizationApplicationAdminStats = async () => {
   const result = await db.query(`
     SELECT
-      COUNT(*)::int AS total_applications,
-      COUNT(*) FILTER (WHERE oa.status = 'PENDING')::int AS total_pending,
-      COUNT(*) FILTER (WHERE oa.status = 'APPROVED')::int AS total_approved,
-      COUNT(*) FILTER (WHERE oa.status = 'REJECTED')::int AS total_rejected
+      COUNT(*) AS total_applications,
+      COALESCE(SUM(oa.status = 'PENDING'), 0) AS total_pending,
+      COALESCE(SUM(oa.status = 'APPROVED'), 0) AS total_approved,
+      COALESCE(SUM(oa.status = 'REJECTED'), 0) AS total_rejected
     FROM organization_applications oa
   `);
   const row = result.rows[0];
@@ -24,12 +24,13 @@ const getAllApplications = async ({ search, status, limit = 10, offset = 0 } = {
 
   if (search) {
     values.push(`%${search}%`);
-    conditions.push(`(oa.org_name ILIKE $${values.length} OR oa.email ILIKE $${values.length})`);
+    values.push(`%${search}%`);
+    conditions.push('(oa.org_name LIKE ? OR oa.email LIKE ?)');
   }
 
   if (status) {
     values.push(status);
-    conditions.push(`oa.status = $${values.length}`);
+    conditions.push('oa.status = ?');
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -42,8 +43,8 @@ const getAllApplications = async ({ search, status, limit = 10, offset = 0 } = {
   const total = parseInt(countResult.rows[0].total, 10);
 
   // Get applications with pagination
-  values.push(limit);
-  values.push(offset);
+  values.push(Number(limit));
+  values.push(Number(offset));
 
   const result = await db.query(
     `SELECT 
@@ -68,7 +69,7 @@ const getAllApplications = async ({ search, status, limit = 10, offset = 0 } = {
     LEFT JOIN users r ON oa.reviewed_by = r.id
     ${whereClause}
     ORDER BY oa.created_at DESC
-    LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    LIMIT ? OFFSET ?`,
     values
   );
 
@@ -102,20 +103,20 @@ const getApplicationById = async (applicationId) => {
     FROM organization_applications oa
     LEFT JOIN users u ON oa.user_id = u.id
     LEFT JOIN users r ON oa.reviewed_by = r.id
-    WHERE oa.id = $1`,
+    WHERE oa.id = ?`,
     [applicationId]
   );
   return result.rows[0];
 };
 
 const updateApplicationStatus = async (applicationId, status, reviewedBy) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE organization_applications 
-     SET status = $1, reviewed_by = $2, reviewed_at = NOW() 
-     WHERE id = $3 
-     RETURNING *`,
+     SET status = ?, reviewed_by = ?, reviewed_at = NOW() 
+     WHERE id = ?`,
     [status, reviewedBy, applicationId]
   );
+  const result = await db.query('SELECT * FROM organization_applications WHERE id = ?', [applicationId]);
   return result.rows[0];
 };
 

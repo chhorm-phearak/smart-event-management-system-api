@@ -3,8 +3,5 @@
 -- =====================================================
 
 -- Add image_url column to groups table
-ALTER TABLE groups 
-ADD COLUMN image_url TEXT;
-
--- Add comment for documentation
-COMMENT ON COLUMN groups.image_url IS 'URL to the group profile image';
+ALTER TABLE `groups`
+ADD COLUMN IF NOT EXISTS image_url TEXT COMMENT 'URL to the group profile image';

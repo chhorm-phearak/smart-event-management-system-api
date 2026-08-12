@@ -17,15 +17,12 @@ const getCreatedEventsWithAttendeeStats = async (userId, {
 
   if (search && search.trim()) {
     const searchPattern = `%${search.trim()}%`;
-    dataParams.push(searchPattern);
-    totalParams.push(searchPattern);
-    const searchIndex = dataParams.length;
-    searchClause = ` AND (e.title ILIKE $${searchIndex} OR e.location ILIKE $${searchIndex})`;
+    dataParams.push(searchPattern, searchPattern);
+    totalParams.push(searchPattern, searchPattern);
+    searchClause = ' AND (e.title LIKE ? OR e.location LIKE ?)';
   }
 
-  const limitIndex = dataParams.length + 1;
   dataParams.push(safeLimit);
-  const offsetIndex = dataParams.length + 1;
   dataParams.push(offset);
 
   const dataQuery = `SELECT 
@@ -37,15 +34,15 @@ const getCreatedEventsWithAttendeeStats = async (userId, {
       COALESCE(SUM(CASE WHEN er.id IS NOT NULL AND er.is_deleted = false AND er.status = 'CHECKED_IN' THEN 1 ELSE 0 END), 0) as total_checked_in
     FROM events e
     LEFT JOIN event_registrations er ON e.id = er.event_id
-    WHERE e.created_by = $1 AND e.is_deleted = false${searchClause}
+    WHERE e.created_by = ? AND e.is_deleted = false${searchClause}
     GROUP BY e.id, e.title, e.start_time, e.location
     ORDER BY e.start_time DESC
-    LIMIT $${limitIndex}
-    OFFSET $${offsetIndex}`;
+    LIMIT ?
+    OFFSET ?`;
 
   const totalQuery = `SELECT COUNT(*) AS total
     FROM events e
-    WHERE e.created_by = $1 AND e.is_deleted = false${searchClause}`;
+    WHERE e.created_by = ? AND e.is_deleted = false${searchClause}`;
 
   const [dataResult, totalResult] = await Promise.all([
     db.query(dataQuery, dataParams),
@@ -99,7 +96,7 @@ const getEventAttendeeDetails = async (eventId, userId, userRole) => {
         COALESCE(SUM(CASE WHEN COALESCE(er.is_deleted, false) = false AND er.status = 'CHECKED_IN' THEN 1 ELSE 0 END), 0) AS total_checked_in,
         COALESCE(SUM(CASE WHEN COALESCE(er.is_deleted, false) = false AND er.status = 'REGISTERED' THEN 1 ELSE 0 END), 0) AS total_not_checked_in
       FROM event_registrations er
-      WHERE er.event_id = $1`,
+      WHERE er.event_id = ?`,
       [eventId]
     ),
     db.query(
@@ -115,7 +112,7 @@ const getEventAttendeeDetails = async (eventId, userId, userRole) => {
       FROM event_registrations er
       JOIN users u ON er.user_id = u.id
       LEFT JOIN user_profile up ON up.user_id = u.id
-      WHERE er.event_id = $1 AND COALESCE(er.is_deleted, false) = false
+      WHERE er.event_id = ? AND COALESCE(er.is_deleted, false) = false
       ORDER BY er.registered_at DESC`,
       [eventId]
     ),

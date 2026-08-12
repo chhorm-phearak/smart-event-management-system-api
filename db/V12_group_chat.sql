@@ -7,19 +7,19 @@
 -- CHAT MESSAGES
 -- =====================================================
 CREATE TABLE IF NOT EXISTS chat_messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    group_id UUID NOT NULL,
-    sender_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    group_id CHAR(36) NOT NULL,
+    sender_id CHAR(36) NOT NULL,
     content TEXT,
     message_type VARCHAR(20) NOT NULL DEFAULT 'text'
         CHECK (message_type IN ('text', 'file', 'mixed')),
-    reply_to_id UUID,
+    reply_to_id CHAR(36),
     is_edited BOOLEAN DEFAULT FALSE,
     is_deleted BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_chat_message_group
-        FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
     CONSTRAINT fk_chat_message_sender
         FOREIGN KEY (sender_id) REFERENCES users(id),
     CONSTRAINT fk_chat_message_reply
@@ -37,13 +37,13 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_group_created
 -- =====================================================
 -- Each chat message can have multiple attached files (max 5 enforced at app level)
 CREATE TABLE IF NOT EXISTS chat_message_files (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    message_id UUID NOT NULL,
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    message_id CHAR(36) NOT NULL,
     file_url TEXT NOT NULL,
     file_name VARCHAR(255),
-    file_size INTEGER,
+    file_size INT,
     file_type VARCHAR(100),
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_chat_file_message
         FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE
 );
@@ -55,10 +55,10 @@ CREATE INDEX IF NOT EXISTS idx_chat_message_files_message_id
 -- CHAT MESSAGE READ RECEIPTS
 -- =====================================================
 CREATE TABLE IF NOT EXISTS chat_message_reads (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    message_id UUID NOT NULL,
-    user_id UUID NOT NULL,
-    read_at TIMESTAMP DEFAULT NOW(),
+    id CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    message_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_chat_read_message
         FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE,
     CONSTRAINT fk_chat_read_user

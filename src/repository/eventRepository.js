@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const crypto = require('crypto');
+const { newId } = require('../utils/uuid');
 const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
@@ -21,8 +22,10 @@ const createEvent = async ({
   status,
   is_public,
 }) => {
-  const result = await db.query(
+  const eventId = newId();
+  await db.query(
     `INSERT INTO events (
+      id,
       organization_id,
       group_id,
       created_by,
@@ -39,9 +42,9 @@ const createEvent = async ({
       status,
       is_public
     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-     RETURNING *`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      eventId,
       organization_id,
       group_id || null,
       created_by,
@@ -59,7 +62,7 @@ const createEvent = async ({
       is_public !== undefined ? is_public : true,
     ]
   );
-  return result.rows[0];
+  return await findEventById(eventId);
 };
 
 const findEventById = async (eventId) => {
@@ -70,8 +73,8 @@ const findEventById = async (eventId) => {
       g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
-     WHERE e.id = $1
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
+     WHERE e.id = ?
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [eventId]
   );
@@ -96,62 +99,61 @@ const updateEvent = async (eventId, {
 }) => {
   const updates = [];
   const values = [];
-  let paramCount = 1;
 
   if (organization_id !== undefined) {
-    updates.push(`organization_id = $${paramCount++}`);
+    updates.push('organization_id = ?');
     values.push(organization_id);
   }
   if (group_id !== undefined) {
-    updates.push(`group_id = $${paramCount++}`);
+    updates.push('group_id = ?');
     values.push(group_id);
   }
   if (title !== undefined) {
-    updates.push(`title = $${paramCount++}`);
+    updates.push('title = ?');
     values.push(title);
   }
   if (short_description !== undefined) {
-    updates.push(`short_description = $${paramCount++}`);
+    updates.push('short_description = ?');
     values.push(short_description);
   }
   if (long_description !== undefined) {
-    updates.push(`long_description = $${paramCount++}`);
+    updates.push('long_description = ?');
     values.push(long_description);
   }
   if (category !== undefined) {
-    updates.push(`category = $${paramCount++}`);
+    updates.push('category = ?');
     values.push(category);
   }
   if (location !== undefined) {
-    updates.push(`location = $${paramCount++}`);
+    updates.push('location = ?');
     values.push(location);
   }
   if (full_address !== undefined) {
-    updates.push(`full_address = $${paramCount++}`);
+    updates.push('full_address = ?');
     values.push(full_address);
   }
   if (start_time !== undefined) {
-    updates.push(`start_time = $${paramCount++}`);
+    updates.push('start_time = ?');
     values.push(start_time);
   }
   if (end_time !== undefined) {
-    updates.push(`end_time = $${paramCount++}`);
+    updates.push('end_time = ?');
     values.push(end_time);
   }
   if (duration !== undefined) {
-    updates.push(`duration = $${paramCount++}`);
+    updates.push('duration = ?');
     values.push(duration);
   }
   if (capacity !== undefined) {
-    updates.push(`capacity = $${paramCount++}`);
+    updates.push('capacity = ?');
     values.push(capacity);
   }
   if (status !== undefined) {
-    updates.push(`status = $${paramCount++}`);
+    updates.push('status = ?');
     values.push(status);
   }
   if (is_public !== undefined) {
-    updates.push(`is_public = $${paramCount++}`);
+    updates.push('is_public = ?');
     values.push(is_public);
   }
 
@@ -161,28 +163,28 @@ const updateEvent = async (eventId, {
 
   values.push(eventId);
   updates.push('updated_at = NOW()');
-  const query = `UPDATE events SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
-  const result = await db.query(query, values);
-  return result.rows[0];
+  await db.query(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`, values);
+  return await findEventById(eventId);
 };
 
 const deleteEvent = async (eventId) => {
   // Delete attendance logs first because registrations are referenced here.
   await db.query(
     `DELETE FROM attendance_logs
-     WHERE registration_id IN (SELECT id FROM event_registrations WHERE event_id = $1)`,
+     WHERE registration_id IN (SELECT id FROM (SELECT id FROM event_registrations WHERE event_id = ?) AS regs)`,
     [eventId]
   );
-  await db.query('DELETE FROM event_agenda WHERE event_id = $1', [eventId]);
-  await db.query('DELETE FROM event_staff WHERE event_id = $1', [eventId]);
-  await db.query('DELETE FROM event_feedback WHERE event_id = $1', [eventId]);
-  await db.query('DELETE FROM notifications WHERE event_id = $1', [eventId]);
-  await db.query('DELETE FROM event_images WHERE event_id = $1', [eventId]);
-  await db.query('DELETE FROM event_registrations WHERE event_id = $1', [eventId]);
-  
-  // Then delete the event
-  const result = await db.query('DELETE FROM events WHERE id = $1 RETURNING *', [eventId]);
-  return result.rows[0];
+  await db.query('DELETE FROM event_agenda WHERE event_id = ?', [eventId]);
+  await db.query('DELETE FROM event_staff WHERE event_id = ?', [eventId]);
+  await db.query('DELETE FROM event_feedback WHERE event_id = ?', [eventId]);
+  await db.query('DELETE FROM notifications WHERE event_id = ?', [eventId]);
+  await db.query('DELETE FROM event_images WHERE event_id = ?', [eventId]);
+  await db.query('DELETE FROM event_registrations WHERE event_id = ?', [eventId]);
+
+  // Then delete the event (fetch it first, MySQL has no RETURNING clause)
+  const existing = await db.query('SELECT * FROM events WHERE id = ?', [eventId]);
+  await db.query('DELETE FROM events WHERE id = ?', [eventId]);
+  return existing.rows[0];
 };
 
 const getAgendaDurationMinutes = (startTime, endTime) => {
@@ -201,12 +203,13 @@ const addEventAgenda = async (eventId, agendaItems) => {
   const agendaResults = [];
   for (const item of agendaItems) {
     const duration = getAgendaDurationMinutes(item.start_time, item.end_time);
-    const result = await db.query(
-      `INSERT INTO event_agenda (event_id, title, description, start_time, end_time, duration)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [eventId, item.title, item.description || null, item.start_time || null, item.end_time || null, duration]
+    const agendaId = newId();
+    await db.query(
+      `INSERT INTO event_agenda (id, event_id, title, description, start_time, end_time, duration)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [agendaId, eventId, item.title, item.description || null, item.start_time || null, item.end_time || null, duration]
     );
+    const result = await db.query('SELECT * FROM event_agenda WHERE id = ?', [agendaId]);
     agendaResults.push(result.rows[0]);
   }
   return agendaResults;
@@ -228,29 +231,31 @@ const addEventStaff = async (eventId, staffMembers, organizationId) => {
 
     const orgMemberResult = await db.query(
       `SELECT id FROM organization_members 
-       WHERE organization_id = $1 AND user_id = $2`,
+       WHERE organization_id = ? AND user_id = ?`,
       [organizationId, userId]
     );
 
     let orgMemberId;
     if (orgMemberResult.rows.length === 0) {
-      const createResult = await db.query(
-        `INSERT INTO organization_members (organization_id, user_id)
-         VALUES ($1, $2)
-         RETURNING id`,
-        [organizationId, userId]
+      orgMemberId = newId();
+      await db.query(
+        `INSERT INTO organization_members (id, organization_id, user_id)
+         VALUES (?, ?, ?)`,
+        [orgMemberId, organizationId, userId]
       );
-      orgMemberId = createResult.rows[0].id;
     } else {
       orgMemberId = orgMemberResult.rows[0].id;
     }
 
+    await db.query(
+      `INSERT INTO event_staff (id, event_id, organization_member_id, role)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+      [newId(), eventId, orgMemberId, role]
+    );
     const result = await db.query(
-      `INSERT INTO event_staff (event_id, organization_member_id, role)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (event_id, organization_member_id) DO UPDATE SET role = $3
-       RETURNING *`,
-      [eventId, orgMemberId, role]
+      'SELECT * FROM event_staff WHERE event_id = ? AND organization_member_id = ?',
+      [eventId, orgMemberId]
     );
     staffResults.push(result.rows[0]);
   }
@@ -259,7 +264,7 @@ const addEventStaff = async (eventId, staffMembers, organizationId) => {
 
 const getEventAgenda = async (eventId) => {
   const result = await db.query(
-    'SELECT * FROM event_agenda WHERE event_id = $1 ORDER BY start_time',
+    'SELECT * FROM event_agenda WHERE event_id = ? ORDER BY start_time',
     [eventId]
   );
   return result.rows;
@@ -276,7 +281,7 @@ const getEventStaff = async (eventId) => {
      FROM event_staff es
      LEFT JOIN organization_members om ON es.organization_member_id = om.id
      LEFT JOIN users u ON om.user_id = u.id
-     WHERE es.event_id = $1 AND (u.is_deleted = FALSE OR u.is_deleted IS NULL)`,
+     WHERE es.event_id = ? AND (u.is_deleted = FALSE OR u.is_deleted IS NULL)`,
     [eventId]
   );
   return result.rows;
@@ -291,19 +296,20 @@ const addEventImage = async (eventId, imageUrl, description = null, markOldAsDel
     // If requested, mark old images as deleted
     if (markOldAsDeleted) {
       await client.query(
-        'UPDATE event_images SET is_deleted = TRUE, updated_at = NOW() WHERE event_id = $1 AND is_deleted = FALSE',
+        'UPDATE event_images SET is_deleted = TRUE, updated_at = NOW() WHERE event_id = ? AND is_deleted = FALSE',
         [eventId]
       );
     }
-    
+
     // Add new image
-    const result = await client.query(
-      `INSERT INTO event_images (event_id, image_url, description)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [eventId, imageUrl, description]
+    const imageId = newId();
+    await client.query(
+      `INSERT INTO event_images (id, event_id, image_url, description)
+       VALUES (?, ?, ?, ?)`,
+      [imageId, eventId, imageUrl, description]
     );
-    
+    const result = await client.query('SELECT * FROM event_images WHERE id = ?', [imageId]);
+
     await client.query('COMMIT');
     return result.rows[0];
   } catch (err) {
@@ -316,7 +322,7 @@ const addEventImage = async (eventId, imageUrl, description = null, markOldAsDel
 
 const getEventImages = async (eventId) => {
   const result = await db.query(
-    'SELECT * FROM event_images WHERE event_id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL) ORDER BY created_at DESC',
+    'SELECT * FROM event_images WHERE event_id = ? AND (is_deleted = FALSE OR is_deleted IS NULL) ORDER BY created_at DESC',
     [eventId]
   );
   return result.rows;
@@ -324,38 +330,38 @@ const getEventImages = async (eventId) => {
 
 const findEventImageById = async (imageId) => {
   const result = await db.query(
-    'SELECT * FROM event_images WHERE id = $1',
+    'SELECT * FROM event_images WHERE id = ?',
     [imageId]
   );
   return result.rows[0];
 };
 
 const deleteEventImage = async (imageId) => {
-  const result = await db.query(
-    'UPDATE event_images SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *',
+  await db.query(
+    'UPDATE event_images SET is_deleted = TRUE, updated_at = NOW() WHERE id = ?',
     [imageId]
   );
-  return result.rows[0];
+  return await findEventImageById(imageId);
 };
 
 const deleteEventAgenda = async (eventId) => {
-  await db.query('DELETE FROM event_agenda WHERE event_id = $1', [eventId]);
+  await db.query('DELETE FROM event_agenda WHERE event_id = ?', [eventId]);
 };
 
 const createAgendaItem = async (eventId, { title, description, start_time, end_time }) => {
   const duration = getAgendaDurationMinutes(start_time, end_time);
-  const result = await db.query(
-    `INSERT INTO event_agenda (event_id, title, description, start_time, end_time, duration)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING *`,
-    [eventId, title || null, description || null, start_time || null, end_time || null, duration]
+  const agendaId = newId();
+  await db.query(
+    `INSERT INTO event_agenda (id, event_id, title, description, start_time, end_time, duration)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [agendaId, eventId, title || null, description || null, start_time || null, end_time || null, duration]
   );
-  return result.rows[0];
+  return await findAgendaItemById(agendaId);
 };
 
 const findAgendaItemById = async (agendaId) => {
   const result = await db.query(
-    'SELECT * FROM event_agenda WHERE id = $1',
+    'SELECT * FROM event_agenda WHERE id = ?',
     [agendaId]
   );
   return result.rows[0];
@@ -364,21 +370,20 @@ const findAgendaItemById = async (agendaId) => {
 const updateAgendaItem = async (agendaId, { title, description, start_time, end_time }) => {
   const updates = [];
   const values = [];
-  let paramCount = 1;
   if (title !== undefined) {
-    updates.push(`title = $${paramCount++}`);
+    updates.push('title = ?');
     values.push(title);
   }
   if (description !== undefined) {
-    updates.push(`description = $${paramCount++}`);
+    updates.push('description = ?');
     values.push(description);
   }
   if (start_time !== undefined) {
-    updates.push(`start_time = $${paramCount++}`);
+    updates.push('start_time = ?');
     values.push(start_time);
   }
   if (end_time !== undefined) {
-    updates.push(`end_time = $${paramCount++}`);
+    updates.push('end_time = ?');
     values.push(end_time);
   }
   if (updates.length === 0) {
@@ -389,53 +394,53 @@ const updateAgendaItem = async (agendaId, { title, description, start_time, end_
     const finalStart = start_time !== undefined ? start_time : existing.start_time;
     const finalEnd = end_time !== undefined ? end_time : existing.end_time;
     const duration = getAgendaDurationMinutes(finalStart, finalEnd);
-    updates.push(`duration = $${paramCount++}`);
+    updates.push('duration = ?');
     values.push(duration);
   }
   updates.push('updated_at = NOW()');
   values.push(agendaId);
-  const result = await db.query(
-    `UPDATE event_agenda SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+  await db.query(
+    `UPDATE event_agenda SET ${updates.join(', ')} WHERE id = ?`,
     values
   );
-  return result.rows[0];
+  return await findAgendaItemById(agendaId);
 };
 
 const deleteAgendaItem = async (agendaId) => {
-  const result = await db.query(
-    'DELETE FROM event_agenda WHERE id = $1 RETURNING *',
-    [agendaId]
-  );
-  return result.rows[0];
+  const existing = await findAgendaItemById(agendaId);
+  await db.query('DELETE FROM event_agenda WHERE id = ?', [agendaId]);
+  return existing;
 };
 
 const deleteEventStaff = async (eventId) => {
-  await db.query('DELETE FROM event_staff WHERE event_id = $1', [eventId]);
+  await db.query('DELETE FROM event_staff WHERE event_id = ?', [eventId]);
 };
 
 const createEventStaffMember = async (eventId, { organization_id, user_id, role }) => {
   let orgMemberResult = await db.query(
-    'SELECT id FROM organization_members WHERE organization_id = $1 AND user_id = $2',
+    'SELECT id FROM organization_members WHERE organization_id = ? AND user_id = ?',
     [organization_id, user_id]
   );
   let orgMemberId;
   if (orgMemberResult.rows.length === 0) {
-    const createResult = await db.query(
-      `INSERT INTO organization_members (organization_id, user_id)
-       VALUES ($1, $2)
-       RETURNING id`,
-      [organization_id, user_id]
+    orgMemberId = newId();
+    await db.query(
+      `INSERT INTO organization_members (id, organization_id, user_id)
+       VALUES (?, ?, ?)`,
+      [orgMemberId, organization_id, user_id]
     );
-    orgMemberId = createResult.rows[0].id;
   } else {
     orgMemberId = orgMemberResult.rows[0].id;
   }
+  await db.query(
+    `INSERT INTO event_staff (id, event_id, organization_member_id, role)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+    [newId(), eventId, orgMemberId, role || null]
+  );
   const result = await db.query(
-    `INSERT INTO event_staff (event_id, organization_member_id, role)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (event_id, organization_member_id) DO UPDATE SET role = $3
-     RETURNING *`,
-    [eventId, orgMemberId, role || null]
+    'SELECT * FROM event_staff WHERE event_id = ? AND organization_member_id = ?',
+    [eventId, orgMemberId]
   );
   return result.rows[0];
 };
@@ -445,7 +450,7 @@ const findEventStaffById = async (staffId) => {
     `SELECT es.*, om.organization_id, om.user_id
      FROM event_staff es
      LEFT JOIN organization_members om ON es.organization_member_id = om.id
-     WHERE es.id = $1`,
+     WHERE es.id = ?`,
     [staffId]
   );
   return result.rows[0];
@@ -455,19 +460,17 @@ const updateEventStaffMember = async (staffId, { role }) => {
   if (role === undefined) {
     return await findEventStaffById(staffId);
   }
-  const result = await db.query(
-    'UPDATE event_staff SET role = $1 WHERE id = $2 RETURNING *',
+  await db.query(
+    'UPDATE event_staff SET role = ? WHERE id = ?',
     [role, staffId]
   );
-  return result.rows[0];
+  return await findEventStaffById(staffId);
 };
 
 const deleteEventStaffMember = async (staffId) => {
-  const result = await db.query(
-    'DELETE FROM event_staff WHERE id = $1 RETURNING *',
-    [staffId]
-  );
-  return result.rows[0];
+  const existing = await findEventStaffById(staffId);
+  await db.query('DELETE FROM event_staff WHERE id = ?', [staffId]);
+  return existing;
 };
 
 const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 10) => {
@@ -492,13 +495,13 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
         (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
-      LEFT JOIN groups g ON e.group_id = g.id
+      LEFT JOIN \`groups\` g ON e.group_id = g.id
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
         AND e.group_id IS NULL
       ORDER BY e.created_at DESC
-      LIMIT $1 OFFSET $2
+      LIMIT ? OFFSET ?
     `;
-    dataParams = [limit, offset];
+    dataParams = [Number(limit), Number(offset)];
   } else {
     // Regular users can see events from their organizations or public events
     countQuery = `
@@ -507,7 +510,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
         AND e.group_id IS NULL
         AND (e.organization_id IN (
-          SELECT id FROM organizations WHERE user_id = $1
+          SELECT id FROM organizations WHERE user_id = ?
         ) OR e.is_public = TRUE)
     `;
     countParams = [userId];
@@ -517,16 +520,16 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
         (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
-      LEFT JOIN groups g ON e.group_id = g.id
+      LEFT JOIN \`groups\` g ON e.group_id = g.id
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
         AND e.group_id IS NULL
         AND (e.organization_id IN (
-          SELECT id FROM organizations WHERE user_id = $1
+          SELECT id FROM organizations WHERE user_id = ?
         ) OR e.is_public = TRUE)
       ORDER BY e.created_at DESC
-      LIMIT $2 OFFSET $3
+      LIMIT ? OFFSET ?
     `;
-    dataParams = [userId, limit, offset];
+    dataParams = [userId, Number(limit), Number(offset)];
   }
 
   // Get total count
@@ -544,7 +547,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
     console.log('Fetching QR codes for userId:', userId);
     console.log('Event IDs:', eventIds);
     const regResult = await db.query(
-      `SELECT event_id, id as registration_id, qr_image_path FROM event_registrations WHERE user_id = $1 AND event_id = ANY($2::uuid[])`,
+      `SELECT event_id, id as registration_id, qr_image_path FROM event_registrations WHERE user_id = ? AND event_id IN (?)`,
       [userId, eventIds]
     );
     console.log('Registration results:', regResult.rows);
@@ -597,7 +600,7 @@ const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) =
   if (userRole !== 'admin_role') {
     params.push(userId);
     whereConditions.push(`e.organization_id IN (
-      SELECT id FROM organizations WHERE user_id = $${params.length}
+      SELECT id FROM organizations WHERE user_id = ?
     )`);
   }
 
@@ -610,9 +613,6 @@ const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) =
   `;
   const countResult = await db.query(countQuery, params);
   const total = parseInt(countResult.rows[0].total);
-
-  const limitIndex = params.length + 1;
-  const offsetIndex = params.length + 2;
 
   const dataQuery = `
     SELECT
@@ -641,30 +641,30 @@ const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) =
       img.image_url AS primary_image_url
     FROM events e
     LEFT JOIN organizations o ON e.organization_id = o.id
-    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN \`groups\` g ON e.group_id = g.id
     LEFT JOIN (
-      SELECT event_id, COUNT(*)::int AS registered_count
+      SELECT event_id, COUNT(*) AS registered_count
       FROM event_registrations
       GROUP BY event_id
     ) regs ON regs.event_id = e.id
     LEFT JOIN (
-      SELECT event_id, COUNT(*)::int AS staff_count
+      SELECT event_id, COUNT(*) AS staff_count
       FROM event_staff
       GROUP BY event_id
     ) staff ON staff.event_id = e.id
-    LEFT JOIN LATERAL (
-      SELECT image_url
-      FROM event_images
-      WHERE event_id = e.id
-      ORDER BY created_at DESC
+    LEFT JOIN event_images img ON img.id = (
+      SELECT ei.id
+      FROM event_images ei
+      WHERE ei.event_id = e.id
+      ORDER BY ei.created_at DESC
       LIMIT 1
-    ) img ON TRUE
+    )
     ${whereClause}
-    ORDER BY e.start_time DESC NULLS LAST, e.created_at DESC
-    LIMIT $${limitIndex} OFFSET $${offsetIndex}
+    ORDER BY (e.start_time IS NULL), e.start_time DESC, e.created_at DESC
+    LIMIT ? OFFSET ?
   `;
 
-  const dataParams = [...params, limit, offset];
+  const dataParams = [...params, Number(limit), Number(offset)];
   const dataResult = await db.query(dataQuery, dataParams);
   const events = dataResult.rows;
 
@@ -675,7 +675,7 @@ const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) =
     const regResult = await db.query(
       `SELECT event_id, id as registration_id, qr_image_path
        FROM event_registrations
-       WHERE user_id = $1 AND event_id = ANY($2::uuid[])`,
+       WHERE user_id = ? AND event_id IN (?)`,
       [userId, eventIds]
     );
     regResult.rows.forEach((row) => {
@@ -729,7 +729,7 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
     `SELECT COUNT(*) as total
      FROM event_registrations er
      INNER JOIN events e ON er.event_id = e.id
-     WHERE er.user_id = $1
+     WHERE er.user_id = ?
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [userId]
   );
@@ -746,12 +746,12 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
      FROM event_registrations er
      INNER JOIN events e ON er.event_id = e.id
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
-     WHERE er.user_id = $1
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
+     WHERE er.user_id = ?
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY er.registered_at DESC
-     LIMIT $2 OFFSET $3`,
-    [userId, limit, offset]
+     LIMIT ? OFFSET ?`,
+    [userId, Number(limit), Number(offset)]
   );
 
   const events = eventsResult.rows;
@@ -791,9 +791,9 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
   // First check if user has access to this group
   const groupCheck = await db.query(
     `SELECT g.*, o.user_id as org_owner_id
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
-     WHERE g.id = $1`,
+     WHERE g.id = ?`,
     [groupId]
   );
 
@@ -806,7 +806,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
   // Check if user is admin, group owner, or group member
   if (userRole !== 'admin_role' && group.org_owner_id !== userId) {
     const isMember = await db.query(
-      'SELECT * FROM group_members WHERE group_id = $1 AND user_id = $2',
+      'SELECT * FROM group_members WHERE group_id = ? AND user_id = ?',
       [groupId, userId]
     );
 
@@ -821,7 +821,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
   const countResult = await db.query(
     `SELECT COUNT(*) as total
      FROM events e
-     WHERE e.group_id = $1
+     WHERE e.group_id = ?
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [groupId]
   );
@@ -832,12 +832,12 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
     `SELECT e.*, o.org_name as organization_name, g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
-     WHERE e.group_id = $1
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
+     WHERE e.group_id = ?
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY e.created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [groupId, limit, offset]
+     LIMIT ? OFFSET ?`,
+    [groupId, Number(limit), Number(offset)]
   );
 
   const events = eventsResult.rows;
@@ -874,7 +874,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
 // --- Event registration (register for event, unique qr_code generated) ---
 const findRegistrationByEventAndUser = async (eventId, userId) => {
   const result = await db.query(
-    `SELECT * FROM event_registrations WHERE event_id = $1 AND user_id = $2`,
+    `SELECT * FROM event_registrations WHERE event_id = ? AND user_id = ?`,
     [eventId, userId]
   );
   return result.rows[0];
@@ -901,12 +901,12 @@ const createEventRegistration = async (eventId, userId) => {
   
   await QRCode.toFile(filePath, qrData);
   
-  const result = await db.query(
+  await db.query(
     `INSERT INTO event_registrations (id, event_id, user_id, qr_code, qr_image_path)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING *`,
+     VALUES (?, ?, ?, ?, ?)`,
     [registrationId, eventId, userId, qrData, qrImagePath]
   );
+  const result = await db.query('SELECT * FROM event_registrations WHERE id = ?', [registrationId]);
   return result.rows[0];
 };
 
@@ -916,38 +916,39 @@ const findRegistrationById = async (registrationId) => {
      FROM event_registrations er
      JOIN events e ON er.event_id = e.id
      JOIN users u ON er.user_id = u.id
-     WHERE er.id = $1`,
+     WHERE er.id = ?`,
     [registrationId]
   );
   return result.rows[0];
 };
 
 const createAttendanceLog = async (registrationId, scannedBy) => {
-  const result = await db.query(
-    `INSERT INTO attendance_logs (registration_id, scanned_by, status)
-     VALUES ($1, $2, 'CHECKED_IN')
-     RETURNING *`,
-    [registrationId, scannedBy]
+  const attendanceId = newId();
+  await db.query(
+    `INSERT INTO attendance_logs (id, registration_id, scanned_by, status)
+     VALUES (?, ?, ?, 'CHECKED_IN')`,
+    [attendanceId, registrationId, scannedBy]
   );
+  const result = await db.query('SELECT * FROM attendance_logs WHERE id = ?', [attendanceId]);
   return result.rows[0];
 };
 
 const findAttendanceByRegistration = async (registrationId) => {
   const result = await db.query(
-    `SELECT * FROM attendance_logs WHERE registration_id = $1`,
+    `SELECT * FROM attendance_logs WHERE registration_id = ?`,
     [registrationId]
   );
   return result.rows[0];
 };
 
 const updateRegistrationStatus = async (registrationId, status) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE event_registrations
-     SET status = $2
-     WHERE id = $1
-     RETURNING *`,
-    [registrationId, status]
+     SET status = ?
+     WHERE id = ?`,
+    [status, registrationId]
   );
+  const result = await db.query('SELECT * FROM event_registrations WHERE id = ?', [registrationId]);
   return result.rows[0];
 };
 
@@ -960,13 +961,13 @@ const deleteEventRegistrationById = async (registrationId) => {
 
   // Delete any attendance logs for this registration
   await db.query(
-    `DELETE FROM attendance_logs WHERE registration_id = $1`,
+    `DELETE FROM attendance_logs WHERE registration_id = ?`,
     [registrationId]
   );
 
   // Delete the registration
-  const result = await db.query(
-    `DELETE FROM event_registrations WHERE id = $1 RETURNING *`,
+  await db.query(
+    `DELETE FROM event_registrations WHERE id = ?`,
     [registrationId]
   );
 

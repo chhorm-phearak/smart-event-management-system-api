@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { newId } = require('../utils/uuid');
 
 const createOrganizationApplication = async ({
   user_id,
@@ -9,11 +10,12 @@ const createOrganizationApplication = async ({
   description,
   status,
 }) => {
-  const result = await db.query(
-    `INSERT INTO organization_applications (user_id, org_name, org_type, contact, email, description, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING *`,
+  const applicationId = newId();
+  await db.query(
+    `INSERT INTO organization_applications (id, user_id, org_name, org_type, contact, email, description, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      applicationId,
       user_id,
       org_name,
       org_type || null,
@@ -23,6 +25,7 @@ const createOrganizationApplication = async ({
       status || 'PENDING',
     ],
   );
+  const result = await db.query('SELECT * FROM organization_applications WHERE id = ?', [applicationId]);
   return result.rows[0];
 };
 
@@ -30,7 +33,7 @@ const findPendingApplicationByUserId = async (userId) => {
   const result = await db.query(
     `SELECT *
      FROM organization_applications
-     WHERE user_id = $1 AND status = 'PENDING'
+     WHERE user_id = ? AND status = 'PENDING'
      ORDER BY created_at DESC
      LIMIT 1`,
     [userId],
@@ -42,7 +45,7 @@ const findLatestApplicationByUserId = async (userId) => {
   const result = await db.query(
     `SELECT *
      FROM organization_applications
-     WHERE user_id = $1
+     WHERE user_id = ?
      ORDER BY created_at DESC
      LIMIT 1`,
     [userId],

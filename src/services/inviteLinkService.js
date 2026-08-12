@@ -176,7 +176,7 @@ const getGroupInviteLinks = async (groupId, organizationId, options = {}) => {
   }
 
   // Check if organization owns the group
-  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group_id);
+  const isOwner = await isOrganizationOwnerOfGroup(organizationId, groupId);
   if (!isOwner) {
     throw new Error('You do not have permission to view invite links for this group');
   }
@@ -195,7 +195,7 @@ const updateInviteLink = async (linkId, organizationId, updates) => {
 
   // Check permissions
   const group = await findGroupById(inviteLink.group_id);
-  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.group_id);
+  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.id);
   if (!isOwner) {
     throw new Error('You do not have permission to update this invite link');
   }
@@ -214,7 +214,7 @@ const deleteInviteLink = async (linkId, organizationId) => {
 
   // Check permissions
   const group = await findGroupById(inviteLink.group_id);
-  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.group_id);
+  const isOwner = await isOrganizationOwnerOfGroup(organizationId, group.id);
   if (!isOwner) {
     throw new Error('You do not have permission to delete this invite link');
   }
@@ -250,8 +250,8 @@ const getOrganizationLatestInviteLinks = async (organizationId) => {
   // Get all groups for the organization
   const groupsResult = await db.query(
     `SELECT id, name, description 
-     FROM groups 
-     WHERE organization_id = $1`,
+     FROM \`groups\` 
+     WHERE organization_id = ?`,
     [organizationId]
   );
 
@@ -263,7 +263,7 @@ const getOrganizationLatestInviteLinks = async (organizationId) => {
     const linkResult = await db.query(
       `SELECT il.token, il.expires_at, il.current_uses, il.max_uses, il.message, il.created_at
        FROM invite_links il
-       WHERE il.group_id = $1
+       WHERE il.group_id = ?
        ORDER BY il.created_at DESC
        LIMIT 1`,
       [group.id]

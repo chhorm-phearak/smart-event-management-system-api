@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { newId } = require('../utils/uuid');
 
 /**
  * Insert a chat message and (optionally) its attached files in one transaction.
@@ -15,23 +16,25 @@ const createMessage = async ({ group_id, sender_id, content, message_type, reply
   try {
     await client.query('BEGIN');
 
-    const messageResult = await client.query(
-      `INSERT INTO chat_messages (group_id, sender_id, content, message_type, reply_to_id, scope)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [scope === 'global' ? null : group_id, sender_id, content || null, message_type, reply_to_id || null, scope]
+    const messageId = newId();
+    await client.query(
+      `INSERT INTO chat_messages (id, group_id, sender_id, content, message_type, reply_to_id, scope)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [messageId, scope === 'global' ? null : group_id, sender_id, content || null, message_type, reply_to_id || null, scope]
     );
+    const messageResult = await client.query(`SELECT * FROM chat_messages WHERE id = ?`, [messageId]);
     const message = messageResult.rows[0];
 
     const insertedFiles = [];
     if (Array.isArray(files) && files.length > 0) {
       for (const f of files) {
-        const fileResult = await client.query(
-          `INSERT INTO chat_message_files (message_id, file_url, file_name, file_size, file_type, scope)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING *`,
-          [message.id, f.file_url, f.file_name || null, f.file_size || null, f.file_type || null, scope]
+        const fileId = newId();
+        await client.query(
+          `INSERT INTO chat_message_files (id, message_id, file_url, file_name, file_size, file_type, scope)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [fileId, messageId, f.file_url, f.file_name || null, f.file_size || null, f.file_type || null, scope]
         );
+        const fileResult = await client.query(`SELECT * FROM chat_message_files WHERE id = ?`, [fileId]);
         insertedFiles.push(fileResult.rows[0]);
       }
     }
@@ -59,20 +62,20 @@ const findMessageById = async (messageId) => {
      FROM chat_messages m
      LEFT JOIN users u ON m.sender_id = u.id
      LEFT JOIN user_profile up ON u.id = up.user_id
-     WHERE m.id = $1`,
+     WHERE m.id = ?`,
     [messageId]
   );
   const message = result.rows[0];
   if (!message) return null;
 
   const filesResult = await db.query(
-    `SELECT * FROM chat_message_files WHERE message_id = $1 ORDER BY created_at ASC`,
+    `SELECT * FROM chat_message_files WHERE message_id = ? ORDER BY created_at ASC`,
     [messageId]
   );
   message.files = filesResult.rows;
 
   const readsResult = await db.query(
-    `SELECT message_id, user_id, read_at FROM chat_message_reads WHERE message_id = $1`,
+    `SELECT message_id, user_id, read_at FROM chat_message_reads WHERE message_id = ?`,
     [messageId]
   );
   message.reads = readsResult.rows;
@@ -88,9 +91,9 @@ const listGroupMessages = async (groupId, { limit = 20, before = null } = {}) =>
   let cursorClause = '';
   if (before) {
     params.push(before);
-    cursorClause = `AND m.created_at < (SELECT created_at FROM chat_messages WHERE id = $${params.length})`;
+    cursorClause = `AND m.created_at < (SELECT created_at FROM (SELECT created_at FROM chat_messages WHERE id = ?) AS cursor_msg)`;
   }
-  params.push(limit);
+  params.push(Number(limit));
 
   const result = await db.query(
     `SELECT m.*,
@@ -101,11 +104,11 @@ const listGroupMessages = async (groupId, { limit = 20, before = null } = {}) =>
      FROM chat_messages m
      LEFT JOIN users u ON m.sender_id = u.id
      LEFT JOIN user_profile up ON u.id = up.user_id
-     WHERE m.group_id = $1
+     WHERE m.group_id = ?
        AND m.is_deleted = FALSE
        ${cursorClause}
      ORDER BY m.created_at DESC
-     LIMIT $${params.length}`,
+     LIMIT ?`,
     params
   );
 
@@ -114,7 +117,7 @@ const listGroupMessages = async (groupId, { limit = 20, before = null } = {}) =>
 
   const messageIds = messages.map((m) => m.id);
   const filesResult = await db.query(
-    `SELECT * FROM chat_message_files WHERE message_id = ANY($1::uuid[])
+    `SELECT * FROM chat_message_files WHERE message_id IN (?)
      ORDER BY created_at ASC`,
     [messageIds]
   );
@@ -128,7 +131,7 @@ const listGroupMessages = async (groupId, { limit = 20, before = null } = {}) =>
   // Load read receipts for all messages in one query
   const readsResult = await db.query(
     `SELECT message_id, user_id, read_at FROM chat_message_reads
-     WHERE message_id = ANY($1::uuid[])`,
+     WHERE message_id IN (?)`,
     [messageIds]
   );
   const readsByMessage = new Map();
@@ -146,41 +149,43 @@ const listGroupMessages = async (groupId, { limit = 20, before = null } = {}) =>
 
 const countGroupMessages = async (groupId) => {
   const result = await db.query(
-    `SELECT COUNT(*)::int AS count FROM chat_messages WHERE group_id = $1 AND is_deleted = FALSE`,
+    `SELECT COUNT(*) AS count FROM chat_messages WHERE group_id = ? AND is_deleted = FALSE`,
     [groupId]
   );
-  return result.rows[0].count;
+  return Number(result.rows[0].count);
 };
 
 const updateMessageContent = async (messageId, content) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE chat_messages
-       SET content = $2, is_edited = TRUE, updated_at = NOW()
-     WHERE id = $1 AND is_deleted = FALSE
-     RETURNING *`,
-    [messageId, content]
+       SET content = ?, is_edited = TRUE, updated_at = NOW()
+     WHERE id = ? AND is_deleted = FALSE`,
+    [content, messageId]
   );
+  const result = await db.query(`SELECT * FROM chat_messages WHERE id = ?`, [messageId]);
   return result.rows[0];
 };
 
 const softDeleteMessage = async (messageId) => {
-  const result = await db.query(
+  await db.query(
     `UPDATE chat_messages
        SET is_deleted = TRUE, updated_at = NOW()
-     WHERE id = $1
-     RETURNING *`,
+     WHERE id = ?`,
     [messageId]
   );
+  const result = await db.query(`SELECT * FROM chat_messages WHERE id = ?`, [messageId]);
   return result.rows[0];
 };
 
 const markMessageRead = async (messageId, userId, scope = 'group') => {
+  await db.query(
+    `INSERT IGNORE INTO chat_message_reads (id, message_id, user_id, scope)
+     VALUES (?, ?, ?, ?)`,
+    [newId(), messageId, userId, scope]
+  );
   const result = await db.query(
-    `INSERT INTO chat_message_reads (message_id, user_id, scope)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (message_id, user_id) DO NOTHING
-     RETURNING *`,
-    [messageId, userId, scope]
+    `SELECT * FROM chat_message_reads WHERE message_id = ? AND user_id = ?`,
+    [messageId, userId]
   );
   return result.rows[0];
 };
@@ -189,12 +194,17 @@ const markMessageRead = async (messageId, userId, scope = 'group') => {
  * Mark all messages in a group as read for a user (excluding their own messages).
  */
 const markGroupRead = async (groupId, userId) => {
+  await db.query(
+    `INSERT IGNORE INTO chat_message_reads (id, message_id, user_id)
+     SELECT UUID(), m.id, ? FROM chat_messages m
+     WHERE m.group_id = ? AND m.is_deleted = FALSE AND m.sender_id <> ?`,
+    [userId, groupId, userId]
+  );
   const result = await db.query(
-    `INSERT INTO chat_message_reads (message_id, user_id)
-     SELECT m.id, $2 FROM chat_messages m
-     WHERE m.group_id = $1 AND m.is_deleted = FALSE AND m.sender_id <> $2
-     ON CONFLICT (message_id, user_id) DO NOTHING
-     RETURNING message_id`,
+    `SELECT r.message_id
+     FROM chat_message_reads r
+     INNER JOIN chat_messages m ON m.id = r.message_id
+     WHERE m.group_id = ? AND r.user_id = ?`,
     [groupId, userId]
   );
   return result.rows;
@@ -202,18 +212,18 @@ const markGroupRead = async (groupId, userId) => {
 
 const getUnreadCount = async (groupId, userId) => {
   const result = await db.query(
-    `SELECT COUNT(*)::int AS count
+    `SELECT COUNT(*) AS count
      FROM chat_messages m
-     WHERE m.group_id = $1
+     WHERE m.group_id = ?
        AND m.is_deleted = FALSE
-       AND m.sender_id <> $2
+       AND m.sender_id <> ?
        AND NOT EXISTS (
          SELECT 1 FROM chat_message_reads r
-         WHERE r.message_id = m.id AND r.user_id = $2
+         WHERE r.message_id = m.id AND r.user_id = ?
        )`,
-    [groupId, userId]
+    [groupId, userId, userId]
   );
-  return result.rows[0].count;
+  return Number(result.rows[0].count);
 };
 
 const getMessageReaders = async (messageId) => {
@@ -223,7 +233,7 @@ const getMessageReaders = async (messageId) => {
      FROM chat_message_reads r
      LEFT JOIN users u ON r.user_id = u.id
      LEFT JOIN user_profile up ON u.id = up.user_id
-     WHERE r.message_id = $1
+     WHERE r.message_id = ?
      ORDER BY r.read_at ASC`,
     [messageId]
   );
@@ -235,11 +245,11 @@ const getMessageReaders = async (messageId) => {
  * Includes groups where user is a member OR owns the parent organization.
  */
 const getUserConversations = async (userId, search = null) => {
-  const params = [userId];
+  const params = [userId, userId, userId, userId, userId];
   let searchClause = '';
   if (search && search.trim()) {
     params.push(`%${search.trim()}%`);
-    searchClause = `AND g.name ILIKE $${params.length}`;
+    searchClause = `AND g.name LIKE ?`;
   }
 
   const result = await db.query(
@@ -247,39 +257,37 @@ const getUserConversations = async (userId, search = null) => {
         g.id,
         g.name,
         g.image_url,
-        (SELECT COUNT(*) FROM group_members WHERE group_id = g.id)::int AS member_count,
+        (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS member_count,
         last_msg.id            AS last_message_id,
         last_msg.content       AS last_message_content,
         last_msg.message_type  AS last_message_type,
         last_msg.created_at    AS last_message_created_at,
         last_msg.sender_id     AS last_message_sender_id,
-        last_msg.sender_first_name,
-        last_msg.sender_last_name,
+        last_sender.first_name AS sender_first_name,
+        last_sender.last_name  AS sender_last_name,
         (
-          SELECT COUNT(*)::int FROM chat_messages m
+          SELECT COUNT(*) FROM chat_messages m
           WHERE m.group_id = g.id
             AND m.is_deleted = FALSE
-            AND m.sender_id <> $1
+            AND m.sender_id <> ?
             AND NOT EXISTS (
               SELECT 1 FROM chat_message_reads r
-              WHERE r.message_id = m.id AND r.user_id = $1
+              WHERE r.message_id = m.id AND r.user_id = ?
             )
         ) AS unread_count
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
-     LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1
-     LEFT JOIN LATERAL (
-        SELECT m.id, m.content, m.message_type, m.created_at, m.sender_id,
-               u.first_name AS sender_first_name,
-               u.last_name  AS sender_last_name
-        FROM chat_messages m
-        LEFT JOIN users u ON m.sender_id = u.id
-        WHERE m.group_id = g.id AND m.is_deleted = FALSE
-        ORDER BY m.created_at DESC
+     LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?
+     LEFT JOIN chat_messages last_msg ON last_msg.id = (
+        SELECT m2.id
+        FROM chat_messages m2
+        WHERE m2.group_id = g.id AND m2.is_deleted = FALSE
+        ORDER BY m2.created_at DESC
         LIMIT 1
-     ) last_msg ON TRUE
+     )
+     LEFT JOIN users last_sender ON last_msg.sender_id = last_sender.id
      WHERE g.is_deleted = FALSE
-       AND (gm.user_id = $1 OR o.user_id = $1)
+       AND (gm.user_id = ? OR o.user_id = ?)
        ${searchClause}
      ORDER BY COALESCE(last_msg.created_at, g.created_at) DESC`,
     params
@@ -300,12 +308,12 @@ const searchGroupMessages = async (groupId, query, { limit = 50 } = {}) => {
      FROM chat_messages m
      LEFT JOIN users u ON m.sender_id = u.id
      LEFT JOIN user_profile up ON u.id = up.user_id
-     WHERE m.group_id = $1
+     WHERE m.group_id = ?
        AND m.is_deleted = FALSE
-       AND m.content ILIKE $2
+       AND m.content LIKE ?
      ORDER BY m.created_at DESC
-     LIMIT $3`,
-    [groupId, `%${query}%`, limit]
+     LIMIT ?`,
+    [groupId, `%${query}%`, Number(limit)]
   );
 
   const messages = result.rows;
@@ -313,7 +321,7 @@ const searchGroupMessages = async (groupId, query, { limit = 50 } = {}) => {
 
   const messageIds = messages.map((m) => m.id);
   const filesResult = await db.query(
-    `SELECT * FROM chat_message_files WHERE message_id = ANY($1::uuid[])
+    `SELECT * FROM chat_message_files WHERE message_id IN (?)
      ORDER BY created_at ASC`,
     [messageIds]
   );
@@ -343,17 +351,17 @@ const searchUserMessages = async (userId, query, { limit = 50 } = {}) => {
             u.email      AS sender_email,
             up.img_url   AS sender_img_url
      FROM chat_messages m
-     INNER JOIN groups g ON m.group_id = g.id AND g.is_deleted = FALSE
+     INNER JOIN \`groups\` g ON m.group_id = g.id AND g.is_deleted = FALSE
      LEFT JOIN organizations o ON g.organization_id = o.id
-     LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1
+     LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?
      LEFT JOIN users u ON m.sender_id = u.id
      LEFT JOIN user_profile up ON u.id = up.user_id
      WHERE m.is_deleted = FALSE
-       AND m.content ILIKE $2
-       AND (gm.user_id = $1 OR o.user_id = $1)
+       AND m.content LIKE ?
+       AND (gm.user_id = ? OR o.user_id = ?)
      ORDER BY m.created_at DESC
-     LIMIT $3`,
-    [userId, `%${query}%`, limit]
+     LIMIT ?`,
+    [userId, `%${query}%`, userId, userId, Number(limit)]
   );
   return result.rows;
 };
@@ -370,9 +378,9 @@ const listGlobalMessages = async ({ limit = 20, before = null } = {}) => {
   let cursorClause = '';
   if (before) {
     params.push(before);
-    cursorClause = `AND m.created_at < (SELECT created_at FROM chat_messages WHERE id = $${params.length})`;
+    cursorClause = `AND m.created_at < (SELECT created_at FROM (SELECT created_at FROM chat_messages WHERE id = ?) AS cursor_msg)`;
   }
-  params.push(limit);
+  params.push(Number(limit));
 
   const result = await db.query(
     `SELECT m.*,
@@ -387,7 +395,7 @@ const listGlobalMessages = async ({ limit = 20, before = null } = {}) => {
        AND m.is_deleted = FALSE
        ${cursorClause}
      ORDER BY m.created_at DESC
-     LIMIT $${params.length}`,
+     LIMIT ?`,
     params
   );
 
@@ -396,7 +404,7 @@ const listGlobalMessages = async ({ limit = 20, before = null } = {}) => {
 
   const messageIds = messages.map((m) => m.id);
   const filesResult = await db.query(
-    `SELECT * FROM chat_message_files WHERE message_id = ANY($1::uuid[]) AND scope = 'global'
+    `SELECT * FROM chat_message_files WHERE message_id IN (?) AND scope = 'global'
      ORDER BY created_at ASC`,
     [messageIds]
   );
@@ -410,7 +418,7 @@ const listGlobalMessages = async ({ limit = 20, before = null } = {}) => {
   // Load read receipts for all messages in one query
   const readsResult = await db.query(
     `SELECT message_id, user_id, read_at FROM chat_message_reads
-     WHERE message_id = ANY($1::uuid[]) AND scope = 'global'`,
+     WHERE message_id IN (?) AND scope = 'global'`,
     [messageIds]
   );
   const readsByMessage = new Map();
@@ -430,12 +438,14 @@ const listGlobalMessages = async ({ limit = 20, before = null } = {}) => {
  * Mark all global messages as read for a user (excluding their own messages).
  */
 const markGlobalRead = async (userId) => {
+  await db.query(
+    `INSERT IGNORE INTO chat_message_reads (id, message_id, user_id, scope)
+     SELECT UUID(), m.id, ?, 'global' FROM chat_messages m
+     WHERE m.scope = 'global' AND m.is_deleted = FALSE AND m.sender_id <> ?`,
+    [userId, userId]
+  );
   const result = await db.query(
-    `INSERT INTO chat_message_reads (message_id, user_id, scope)
-     SELECT m.id, $1, 'global' FROM chat_messages m
-     WHERE m.scope = 'global' AND m.is_deleted = FALSE AND m.sender_id <> $1
-     ON CONFLICT (message_id, user_id) DO NOTHING
-     RETURNING message_id`,
+    `SELECT message_id FROM chat_message_reads WHERE user_id = ? AND scope = 'global'`,
     [userId]
   );
   return result.rows;
@@ -446,18 +456,18 @@ const markGlobalRead = async (userId) => {
  */
 const getGlobalUnreadCount = async (userId) => {
   const result = await db.query(
-    `SELECT COUNT(*)::int AS count
+    `SELECT COUNT(*) AS count
      FROM chat_messages m
      WHERE m.scope = 'global'
        AND m.is_deleted = FALSE
-       AND m.sender_id <> $1
+       AND m.sender_id <> ?
        AND NOT EXISTS (
          SELECT 1 FROM chat_message_reads r
-         WHERE r.message_id = m.id AND r.user_id = $1 AND r.scope = 'global'
+         WHERE r.message_id = m.id AND r.user_id = ? AND r.scope = 'global'
        )`,
-    [userId]
+    [userId, userId]
   );
-  return result.rows[0].count;
+  return Number(result.rows[0].count);
 };
 
 /**
@@ -475,10 +485,10 @@ const searchGlobalMessages = async (query, { limit = 50 } = {}) => {
      LEFT JOIN user_profile up ON u.id = up.user_id
      WHERE m.scope = 'global'
        AND m.is_deleted = FALSE
-       AND m.content ILIKE $1
+       AND m.content LIKE ?
      ORDER BY m.created_at DESC
-     LIMIT $2`,
-    [`%${query}%`, limit]
+     LIMIT ?`,
+    [`%${query}%`, Number(limit)]
   );
 
   const messages = result.rows;
@@ -486,7 +496,7 @@ const searchGlobalMessages = async (query, { limit = 50 } = {}) => {
 
   const messageIds = messages.map((m) => m.id);
   const filesResult = await db.query(
-    `SELECT * FROM chat_message_files WHERE message_id = ANY($1::uuid[]) AND scope = 'global'
+    `SELECT * FROM chat_message_files WHERE message_id IN (?) AND scope = 'global'
      ORDER BY created_at ASC`,
     [messageIds]
   );

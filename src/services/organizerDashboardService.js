@@ -9,15 +9,15 @@ const getPlatformDashboardStats = async () => {
   const [result, organizersResult] = await Promise.all([
     db.query(`
     SELECT
-      (SELECT COUNT(*)::int FROM users u
+      (SELECT COUNT(*) FROM users u
        WHERE (u.is_deleted = FALSE OR u.is_deleted IS NULL)) AS total_users,
-      (SELECT COUNT(*)::int FROM organizations o
+      (SELECT COUNT(*) FROM organizations o
        WHERE (o.is_deleted = FALSE OR o.is_deleted IS NULL)) AS total_organizers,
-      (SELECT COUNT(*)::int FROM events e
+      (SELECT COUNT(*) FROM events e
        WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)) AS total_events,
-      (SELECT COUNT(*)::int FROM organization_applications oa
+      (SELECT COUNT(*) FROM organization_applications oa
        WHERE (oa.is_deleted = FALSE OR oa.is_deleted IS NULL)) AS total_organizer_applications,
-      (SELECT COUNT(*)::int FROM organization_applications oa
+      (SELECT COUNT(*) FROM organization_applications oa
        WHERE oa.status = 'PENDING'
          AND (oa.is_deleted = FALSE OR oa.is_deleted IS NULL)) AS pending_applications
   `),
@@ -35,12 +35,12 @@ const getPlatformDashboardStats = async () => {
       u.first_name AS owner_first_name,
       u.last_name AS owner_last_name,
       u.email AS owner_email,
-      COALESCE(ec.cnt, 0)::int AS event_count
+      COALESCE(ec.cnt, 0) AS event_count
     FROM organizations o
     INNER JOIN users u ON u.id = o.user_id
       AND (u.is_deleted = FALSE OR u.is_deleted IS NULL)
     LEFT JOIN (
-      SELECT organization_id, COUNT(*)::int AS cnt
+      SELECT organization_id, COUNT(*) AS cnt
       FROM events
       WHERE (is_deleted = FALSE OR is_deleted IS NULL)
       GROUP BY organization_id
@@ -82,7 +82,7 @@ const getEventsByOrganizerId = async (organizerId, page = 1, limit = 10) => {
 
   // Get all organizations owned by this user
   const orgsResult = await db.query(
-    'SELECT id FROM organizations WHERE user_id = $1',
+    'SELECT id FROM organizations WHERE user_id = ?',
     [organizerId]
   );
 
@@ -104,7 +104,7 @@ const getEventsByOrganizerId = async (organizerId, page = 1, limit = 10) => {
   const countResult = await db.query(
     `SELECT COUNT(*) as total
      FROM events
-     WHERE organization_id = ANY($1::uuid[])
+     WHERE organization_id IN (?)
        AND (is_deleted = FALSE OR is_deleted IS NULL)`,
     [orgIds]
   );
@@ -115,12 +115,12 @@ const getEventsByOrganizerId = async (organizerId, page = 1, limit = 10) => {
     `SELECT e.*, o.org_name as organization_name, g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
-     WHERE e.organization_id = ANY($1::uuid[])
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
+     WHERE e.organization_id IN (?)
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY e.created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [orgIds, limit, offset]
+     LIMIT ? OFFSET ?`,
+    [orgIds, Number(limit), Number(offset)]
   );
 
   const events = eventsResult.rows;
@@ -130,7 +130,7 @@ const getEventsByOrganizerId = async (organizerId, page = 1, limit = 10) => {
   if (events.length > 0 && organizerId) {
     const eventIds = events.map((e) => e.id);
     const regResult = await db.query(
-      `SELECT event_id, id as registration_id, qr_image_path FROM event_registrations WHERE user_id = $1 AND event_id = ANY($2::uuid[])`,
+      `SELECT event_id, id as registration_id, qr_image_path FROM event_registrations WHERE user_id = ? AND event_id IN (?)`,
       [organizerId, eventIds]
     );
     regResult.rows.forEach((row) => {

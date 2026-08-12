@@ -3,10 +3,10 @@ const db = require('../config/db');
 const getUserAdminStats = async () => {
   const result = await db.query(`
     SELECT
-      COUNT(*)::int AS total_users,
-      COUNT(*) FILTER (WHERE u.status = 'ACTIVE')::int AS total_active,
-      COUNT(*) FILTER (WHERE u.status = 'INACTIVE')::int AS total_inactive,
-      COUNT(*) FILTER (WHERE u.status = 'SUSPENDED')::int AS total_suspended
+      COUNT(*) AS total_users,
+      COALESCE(SUM(u.status = 'ACTIVE'), 0) AS total_active,
+      COALESCE(SUM(u.status = 'INACTIVE'), 0) AS total_inactive,
+      COALESCE(SUM(u.status = 'SUSPENDED'), 0) AS total_suspended
     FROM users u
     WHERE u.is_deleted = FALSE
   `);
@@ -25,17 +25,19 @@ const getAllUsers = async ({ search, status, role_id, limit = 10, offset = 0 } =
 
   if (search) {
     values.push(`%${search}%`);
-    conditions.push(`(u.first_name ILIKE $${values.length} OR u.last_name ILIKE $${values.length} OR u.email ILIKE $${values.length})`);
+    values.push(`%${search}%`);
+    values.push(`%${search}%`);
+    conditions.push('(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)');
   }
 
   if (status) {
     values.push(status);
-    conditions.push(`u.status = $${values.length}`);
+    conditions.push('u.status = ?');
   }
 
   if (role_id) {
     values.push(role_id);
-    conditions.push(`u.role_id = $${values.length}`);
+    conditions.push('u.role_id = ?');
   }
 
   const whereClause = conditions.join(' AND ');
@@ -48,8 +50,8 @@ const getAllUsers = async ({ search, status, role_id, limit = 10, offset = 0 } =
   const total = parseInt(countResult.rows[0].total, 10);
 
   // Get users with pagination
-  values.push(limit);
-  values.push(offset);
+  values.push(Number(limit));
+  values.push(Number(offset));
 
   const result = await db.query(
     `SELECT 
@@ -77,7 +79,7 @@ const getAllUsers = async ({ search, status, role_id, limit = 10, offset = 0 } =
     LEFT JOIN user_profile up ON u.id = up.user_id
     WHERE ${whereClause}
     ORDER BY u.created_at DESC
-    LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    LIMIT ? OFFSET ?`,
     values
   );
 
@@ -114,33 +116,36 @@ const getUserById = async (userId) => {
       up.date_of_birth
     FROM users u
     LEFT JOIN user_profile up ON u.id = up.user_id
-    WHERE u.id = $1 AND u.is_deleted = FALSE`,
+    WHERE u.id = ? AND u.is_deleted = FALSE`,
     [userId]
   );
   return result.rows[0];
 };
 
 const updateUserStatus = async (userId, status) => {
-  const result = await db.query(
-    `UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE RETURNING *`,
+  await db.query(
+    `UPDATE users SET status = ?, updated_at = NOW() WHERE id = ? AND is_deleted = FALSE`,
     [status, userId]
   );
+  const result = await db.query('SELECT * FROM users WHERE id = ? AND is_deleted = FALSE', [userId]);
   return result.rows[0];
 };
 
 const updateUserRole = async (userId, roleId) => {
-  const result = await db.query(
-    `UPDATE users SET role_id = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE RETURNING *`,
+  await db.query(
+    `UPDATE users SET role_id = ?, updated_at = NOW() WHERE id = ? AND is_deleted = FALSE`,
     [roleId, userId]
   );
+  const result = await db.query('SELECT * FROM users WHERE id = ? AND is_deleted = FALSE', [userId]);
   return result.rows[0];
 };
 
 const deleteUser = async (userId) => {
-  const result = await db.query(
-    `UPDATE users SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+  await db.query(
+    `UPDATE users SET is_deleted = TRUE, updated_at = NOW() WHERE id = ?`,
     [userId]
   );
+  const result = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
   return result.rows[0];
 };
 
