@@ -253,8 +253,8 @@ const getUserConversations = async (userId, search = null) => {
         last_msg.message_type  AS last_message_type,
         last_msg.created_at    AS last_message_created_at,
         last_msg.sender_id     AS last_message_sender_id,
-        last_msg.sender_first_name,
-        last_msg.sender_last_name,
+        last_sender.first_name AS sender_first_name,
+        last_sender.last_name  AS sender_last_name,
         (
           SELECT COUNT(*)::int FROM chat_messages m
           WHERE m.group_id = g.id
@@ -268,16 +268,14 @@ const getUserConversations = async (userId, search = null) => {
      FROM groups g
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1
-     LEFT JOIN LATERAL (
-        SELECT m.id, m.content, m.message_type, m.created_at, m.sender_id,
-               u.first_name AS sender_first_name,
-               u.last_name  AS sender_last_name
-        FROM chat_messages m
-        LEFT JOIN users u ON m.sender_id = u.id
-        WHERE m.group_id = g.id AND m.is_deleted = FALSE
-        ORDER BY m.created_at DESC
+     LEFT JOIN chat_messages last_msg ON last_msg.id = (
+        SELECT m2.id
+        FROM chat_messages m2
+        WHERE m2.group_id = g.id AND m2.is_deleted = FALSE
+        ORDER BY m2.created_at DESC
         LIMIT 1
-     ) last_msg ON TRUE
+     )
+     LEFT JOIN users last_sender ON last_msg.sender_id = last_sender.id
      WHERE g.is_deleted = FALSE
        AND (gm.user_id = $1 OR o.user_id = $1)
        ${searchClause}
