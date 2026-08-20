@@ -21,6 +21,12 @@ const {
   markUsed,
 } = require('../repository/passwordResetRepository');
 const { findOrganizationByUserId } = require('../repository/organizationRepository');
+const {
+  handleFailedLogin,
+  handleSuccessfulLogin,
+  isAccountLocked,
+  getLockoutRemainingMinutes,
+} = require('../repository/accountLockoutRepository');
 
 // simple in-memory token blacklist for logout (per process)
 const tokenBlacklist = new Set();
@@ -110,18 +116,10 @@ const login = async (req, res) => {
     }
 
     // Check if account is locked before proceeding
-    const isLocked = await db.query(
-      'SELECT is_account_locked($1) as locked',
-      [email]
-    );
-    
-    if (isLocked.rows[0].locked) {
-      const remainingMinutes = await db.query(
-        'SELECT get_lockout_remaining_minutes($1) as minutes',
-        [email]
-      );
-      
-      const minutes = remainingMinutes.rows[0].minutes;
+    const isLocked = await isAccountLocked(email);
+
+    if (isLocked) {
+      const minutes = await getLockoutRemainingMinutes(email);
       const timeMessage = minutes === 1 ? '1 minute' : `${minutes} minutes`;
       
       return res.status(423).json({ 
@@ -134,7 +132,7 @@ const login = async (req, res) => {
     const user = await findByEmail(email);
     if (!user) {
       // Handle failed login for non-existent user
-      await db.query('SELECT handle_failed_login($1)', [email]);
+      await handleFailedLogin(email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -154,12 +152,12 @@ const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       // Handle failed login
-      await db.query('SELECT handle_failed_login($1)', [email]);
+      await handleFailedLogin(email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // Handle successful login - reset lockout state
-    await db.query('SELECT handle_successful_login($1)', [email]);
+    await handleSuccessfulLogin(email);
 
     const token = generateToken(user);
     const organizations = await findOrganizationByUserId(user.id);
