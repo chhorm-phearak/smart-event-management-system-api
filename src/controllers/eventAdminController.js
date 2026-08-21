@@ -3,6 +3,7 @@ const {
   getEventByIdService,
   updateEventStatusService,
   deleteEventService,
+  editEventService,
 } = require('../services/eventAdminService');
 
 const getAllEvents = async (req, res) => {
@@ -31,15 +32,15 @@ const getAllEvents = async (req, res) => {
 const getEventById = async (req, res) => {
   try {
     const { id } = req.params;
-    const event = await getEventByIdService(id);
+    const result = await getEventByIdService(id);
 
-    if (!event) {
+    if (!result) {
       return res.status(404).json({ message: 'Event not found' });
     }
 
     return res.json({
       message: 'Event retrieved successfully',
-      data: { event },
+      data: result,
     });
   } catch (err) {
     console.error(err);
@@ -93,9 +94,34 @@ const deleteEvent = async (req, res) => {
   }
 };
 
+const editEvent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const eventData = req.body;
+
+    if (Object.keys(eventData).length === 0) {
+      return res.status(400).json({ message: 'At least one field must be provided for update' });
+    }
+
+    const result = await editEventService(id, eventData);
+
+    return res.json({
+      message: 'Event updated successfully',
+      data: result,
+    });
+  } catch (err) {
+    if (err.message.includes('Event not found') || err.message.includes('At least one field')) {
+      return res.status(400).json({ message: err.message });
+    }
+    console.error(err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   getAllEvents,
   getEventById,
   updateEventStatus,
   deleteEvent,
+  editEvent,
 };

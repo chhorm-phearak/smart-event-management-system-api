@@ -161,10 +161,105 @@ const deleteEvent = async (eventId) => {
   return result.rows[0];
 };
 
+const editEvent = async (eventId, eventData) => {
+  const {
+    title,
+    short_description,
+    long_description,
+    category,
+    start_time,
+    end_time,
+    duration,
+    capacity,
+    location,
+    full_address,
+    status,
+    is_public,
+    organization_id
+  } = eventData;
+
+  // Build dynamic update query
+  const updateFields = [];
+  const values = [];
+  let paramIndex = 1;
+
+  if (title !== undefined) {
+    updateFields.push(`title = $${paramIndex++}`);
+    values.push(title);
+  }
+  if (short_description !== undefined) {
+    updateFields.push(`short_description = $${paramIndex++}`);
+    values.push(short_description);
+  }
+  if (long_description !== undefined) {
+    updateFields.push(`long_description = $${paramIndex++}`);
+    values.push(long_description);
+  }
+  if (category !== undefined) {
+    updateFields.push(`category = $${paramIndex++}`);
+    values.push(category);
+  }
+  if (start_time !== undefined) {
+    updateFields.push(`start_time = $${paramIndex++}`);
+    values.push(start_time);
+  }
+  if (end_time !== undefined) {
+    updateFields.push(`end_time = $${paramIndex++}`);
+    values.push(end_time);
+  }
+  if (duration !== undefined) {
+    updateFields.push(`duration = $${paramIndex++}`);
+    values.push(duration);
+  }
+  if (capacity !== undefined) {
+    updateFields.push(`capacity = $${paramIndex++}`);
+    values.push(capacity);
+  }
+  if (location !== undefined) {
+    updateFields.push(`location = $${paramIndex++}`);
+    values.push(location);
+  }
+  if (full_address !== undefined) {
+    updateFields.push(`full_address = $${paramIndex++}`);
+    values.push(full_address);
+  }
+  if (status !== undefined) {
+    updateFields.push(`status = $${paramIndex++}`);
+    values.push(status);
+  }
+  if (is_public !== undefined) {
+    updateFields.push(`is_public = $${paramIndex++}`);
+    values.push(is_public);
+  }
+  if (organization_id !== undefined) {
+    updateFields.push(`organization_id = $${paramIndex++}`);
+    values.push(organization_id);
+  }
+
+  if (updateFields.length === 0) {
+    throw new Error('At least one field must be provided for update');
+  }
+
+  // Add updated_at and event_id
+  updateFields.push(`updated_at = NOW()`);
+  values.push(eventId);
+
+  const query = `
+    UPDATE events 
+    SET ${updateFields.join(', ')} 
+    WHERE id = $${paramIndex} AND (is_deleted = FALSE OR is_deleted IS NULL) 
+    RETURNING *
+  `;
+
+  const result = await db.query(query, values);
+  return result.rows[0];
+};
+
 module.exports = {
   getEventAdminStats,
   getAllEvents,
   getEventById,
   updateEventStatus,
   deleteEvent,
+  editEvent,
 };

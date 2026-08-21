@@ -144,6 +144,135 @@ const deleteUser = async (userId) => {
   return result.rows[0];
 };
 
+const editUser = async (userId, userData) => {
+  const { first_name, last_name, email, gender, contact, address, date_of_birth } = userData;
+  
+  // Start transaction
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    
+    // Update users table
+    const userUpdateFields = [];
+    const userValues = [];
+    let paramIndex = 1;
+    
+    if (first_name !== undefined) {
+      userUpdateFields.push(`first_name = $${paramIndex++}`);
+      userValues.push(first_name);
+    }
+    if (last_name !== undefined) {
+      userUpdateFields.push(`last_name = $${paramIndex++}`);
+      userValues.push(last_name);
+    }
+    if (email !== undefined) {
+      userUpdateFields.push(`email = $${paramIndex++}`);
+      userValues.push(email);
+    }
+    if (gender !== undefined) {
+      userUpdateFields.push(`gender = $${paramIndex++}`);
+      userValues.push(gender);
+    }
+    
+    if (userUpdateFields.length > 0) {
+      userUpdateFields.push(`updated_at = NOW()`);
+      userValues.push(userId);
+      
+      const userQuery = `
+        UPDATE users 
+        SET ${userUpdateFields.join(', ')} 
+        WHERE id = $${paramIndex} AND is_deleted = FALSE 
+        RETURNING id, first_name, last_name, email, gender, status, role_id, created_at, updated_at
+      `;
+      
+      await client.query(userQuery, userValues);
+    }
+    
+    // Update user_profile table
+    const profileUpdateFields = [];
+    const profileValues = [];
+    paramIndex = 1;
+    
+    if (contact !== undefined) {
+      profileUpdateFields.push(`contact = $${paramIndex++}`);
+      profileValues.push(contact);
+    }
+    if (address !== undefined) {
+      profileUpdateFields.push(`address = $${paramIndex++}`);
+      profileValues.push(address);
+    }
+    if (date_of_birth !== undefined) {
+      profileUpdateFields.push(`date_of_birth = $${paramIndex++}`);
+      profileValues.push(date_of_birth);
+    }
+    
+    if (profileUpdateFields.length > 0) {
+      profileValues.push(userId);
+      
+      // Check if profile exists first
+      const profileExists = await client.query(
+        'SELECT user_id FROM user_profile WHERE user_id = $1',
+        [userId]
+      );
+      
+      if (profileExists.rows.length > 0) {
+        // Update existing profile
+        const profileQuery = `
+          UPDATE user_profile 
+          SET ${profileUpdateFields.join(', ')} 
+          WHERE user_id = $${paramIndex}
+        `;
+        await client.query(profileQuery, profileValues);
+      } else {
+        // Insert new profile
+        profileUpdateFields.push('user_id = $' + (paramIndex + 1));
+        const profileQuery = `
+          INSERT INTO user_profile (${profileUpdateFields.map((field, i) => field.split(' = ')[0]).join(', ')})
+          VALUES (${profileUpdateFields.map((_, i) => '$' + (i + 1)).join(', ')})
+        `;
+        await client.query(profileQuery, [...profileValues.slice(0, -1), userId]);
+      }
+    }
+    
+    // Get updated user data
+    const result = await client.query(
+      `SELECT 
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.gender,
+        u.status,
+        u.role_id,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM organizations o
+            WHERE o.user_id = u.id
+              AND (o.is_deleted = FALSE OR o.is_deleted IS NULL)
+          ) THEN 'Organization'
+        END AS role,
+        u.created_at,
+        u.updated_at,
+        up.img_url,
+        up.contact,
+        up.address,
+        up.date_of_birth
+      FROM users u
+      LEFT JOIN user_profile up ON u.id = up.user_id
+      WHERE u.id = $1 AND u.is_deleted = FALSE`,
+      [userId]
+    );
+    
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getUserAdminStats,
   getAllUsers,
@@ -151,4 +280,5 @@ module.exports = {
   updateUserStatus,
   updateUserRole,
   deleteUser,
+  editUser,
 };

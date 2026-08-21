@@ -5,6 +5,7 @@ const {
   updateUserStatus,
   updateUserRole,
   deleteUser,
+  editUser,
 } = require('../repository/userAdminRepository');
 const { getFullUrl } = require('./uploadService');
 
@@ -66,10 +67,50 @@ const deleteUserService = async (userId) => {
   return await deleteUser(userId);
 };
 
+const editUserService = async (userId, userData) => {
+  const { first_name, last_name, email, gender, contact, address, date_of_birth } = userData;
+  
+  // Validate email format if provided
+  if (email !== undefined) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error('Invalid email format');
+    }
+  }
+  
+  // Validate gender if provided
+  if (gender !== undefined) {
+    const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+    if (!validGenders.includes(gender)) {
+      throw new Error('Invalid gender. Must be one of: MALE, FEMALE, OTHER');
+    }
+  }
+  
+  // Validate date of birth if provided
+  if (date_of_birth !== undefined) {
+    const dob = new Date(date_of_birth);
+    const now = new Date();
+    if (isNaN(dob.getTime()) || dob >= now) {
+      throw new Error('Invalid date of birth');
+    }
+  }
+  
+  const updatedUser = await editUser(userId, userData);
+  if (!updatedUser) {
+    throw new Error('User not found');
+  }
+  
+  return {
+    ...updatedUser,
+    img_url: updatedUser.img_url ? getFullUrl(updatedUser.img_url) : null,
+  };
+};
+
 module.exports = {
   getAllUsersService,
   getUserByIdService,
   updateUserStatusService,
   updateUserRoleService,
   deleteUserService,
+  editUserService,
 };

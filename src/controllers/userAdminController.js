@@ -4,6 +4,7 @@ const {
   updateUserStatusService,
   updateUserRoleService,
   deleteUserService,
+  editUserService,
 } = require('../services/userAdminService');
 
 const getAllUsers = async (req, res) => {
@@ -121,10 +122,42 @@ const deleteUser = async (req, res) => {
   }
 };
 
+const editUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userData = req.body;
+
+    // Validate that at least one field is provided
+    if (Object.keys(userData).length === 0) {
+      return res.status(400).json({ message: 'At least one field must be provided for update' });
+    }
+
+    const user = await editUserService(id, userData);
+
+    return res.json({
+      message: 'User updated successfully',
+      data: { user },
+    });
+  } catch (err) {
+    console.error(err);
+    
+    // Handle specific validation errors
+    if (err.message.includes('Invalid email') || 
+        err.message.includes('Invalid gender') || 
+        err.message.includes('Invalid date of birth') ||
+        err.message.includes('User not found')) {
+      return res.status(400).json({ message: err.message });
+    }
+    
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUserStatus,
   updateUserRole,
   deleteUser,
+  editUser,
 };

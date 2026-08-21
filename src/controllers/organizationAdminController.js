@@ -2,6 +2,7 @@ const {
   getAllOrganizationsService,
   getOrganizationByIdService,
   updateOrganizationStatusService,
+  updateOrganizationService,
   deleteOrganizationService,
 } = require('../services/organizationAdminService');
 
@@ -74,6 +75,34 @@ const updateOrganizationStatus = async (req, res) => {
   }
 };
 
+const updateOrganization = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { org_name, org_type, contact, email, description, status } = req.body;
+
+    const organization = await updateOrganizationService(id, {
+      org_name,
+      org_type,
+      contact,
+      email,
+      description,
+      status,
+    });
+
+    if (!organization) {
+      return res.status(404).json({ message: 'Organization not found' });
+    }
+
+    return res.json({
+      message: 'Organization updated successfully',
+      data: { organization },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const deleteOrganization = async (req, res) => {
   try {
     const { id } = req.params;
@@ -96,5 +125,6 @@ module.exports = {
   getAllOrganizations,
   getOrganizationById,
   updateOrganizationStatus,
+  updateOrganization,
   deleteOrganization,
 };

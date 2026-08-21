@@ -21,6 +21,7 @@ const {
   getEventImages,
   findEventImageById,
   deleteEventImage,
+  findRegisteredUsersByEventId,
   findRegistrationByEventAndUser,
   createEventRegistration,
   findRegistrationById,
@@ -29,7 +30,8 @@ const {
   checkInByRegistrationId,
   deleteEventRegistrationById,
 } = require('../repository/eventRepository');
-const { createNotification } = require('../services/notificationService');
+const { createNotification, createNotifications } = require('../services/notificationService');
+const { sendEventUpdateEmail } = require('../services/emailService');
 const {
   findOrganizationById,
   findOrganizationByUserId,
@@ -47,6 +49,59 @@ const convertToCambodiaTime = (utcDate) => {
   // Cambodia is UTC+7, add 7 hours to UTC time
   date.setHours(date.getUTCHours() + 7);
   return date.toISOString();
+};
+
+// Format a UTC timestamp for email display in Cambodia time
+const formatEventTime = (utcDate) => {
+  if (!utcDate) return '—';
+  const date = new Date(utcDate);
+  return date.toLocaleString('en-GB', {
+    timeZone: 'Asia/Phnom_Penh',
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+// Detect which event fields changed between the old and updated event
+const detectChangedFields = (existing, updated) => {
+  const fields = [
+    { key: 'title', label: 'Event Title' },
+    { key: 'short_description', label: 'Short Description' },
+    { key: 'long_description', label: 'Long Description' },
+    { key: 'category', label: 'Category' },
+    { key: 'location', label: 'Location' },
+    { key: 'full_address', label: 'Address' },
+    { key: 'start_time', label: 'Start Time', isDate: true },
+    { key: 'end_time', label: 'End Time', isDate: true },
+    { key: 'duration', label: 'Duration' },
+    { key: 'capacity', label: 'Capacity' },
+    { key: 'status', label: 'Status' },
+    { key: 'is_public', label: 'Visibility' },
+  ];
+
+  const changed = [];
+  for (const { key, label, isDate } of fields) {
+    const oldValue = existing[key];
+    const newValue = updated[key];
+    const oldTime = new Date(oldValue || 0).getTime();
+    const newTime = new Date(newValue || 0).getTime();
+    const isChanged = isDate
+      ? Number.isNaN(oldTime) !== Number.isNaN(newTime) || oldTime !== newTime
+      : oldValue !== newValue;
+
+    if (isChanged) {
+      changed.push({
+        label,
+        oldValue: isDate ? formatEventTime(oldValue) : (oldValue || '—'),
+        newValue: isDate ? formatEventTime(newValue) : (newValue || '—'),
+      });
+    }
+  }
+  return changed;
 };
 
 // Helper function to convert time fields in event object to Cambodia time
@@ -400,6 +455,47 @@ const update = async (req, res) => {
       status,
       is_public,
     });
+
+    // Notify registered users of important changes (run in background)
+    const changedFields = detectChangedFields(existingEvent, updatedEvent);
+    if (changedFields.length > 0) {
+      (async () => {
+        const registeredUsers = await findRegisteredUsersByEventId(id);
+        const eventUrl = `${process.env.FRONTEND_URL || 'http://127.0.0.1:5173'}/events/${updatedEvent.id}`;
+
+        for (const user of registeredUsers) {
+          try {
+            await sendEventUpdateEmail(
+              user.email,
+              user.first_name,
+              updatedEvent,
+              changedFields,
+              eventUrl
+            );
+          } catch (emailErr) {
+            console.error(`Failed to send update email to ${user.email}:`, emailErr);
+          }
+        }
+
+        // Save in-app notifications for registered users
+        if (registeredUsers.length > 0) {
+          const notificationPayloads = registeredUsers.map((user) => ({
+            user_id: user.id,
+            event_id: updatedEvent.id,
+            type: 'EVENT_UPDATED',
+            title: `Event updated: ${updatedEvent.title}`,
+            message: `The event "${updatedEvent.title}" was updated. Changes: ${changedFields.map((f) => `${f.label}: ${f.oldValue} → ${f.newValue}`).join(', ')}`,
+            data: { event_id: updatedEvent.id, changed_fields: changedFields },
+          }));
+
+          try {
+            await createNotifications(notificationPayloads);
+          } catch (notifErr) {
+            console.error('Failed to create event update notifications:', notifErr);
+          }
+        }
+      })().catch((err) => console.error('Background event update notification task failed:', err));
+    }
 
     // Update agenda if provided
     let agendaItems = [];

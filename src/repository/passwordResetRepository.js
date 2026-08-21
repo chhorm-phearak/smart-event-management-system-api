@@ -23,10 +23,18 @@ const markUsed = async (id) => {
   await db.query('UPDATE password_resets SET used = TRUE WHERE id = $1', [id]);
 };
 
+const invalidateExistingTokens = async (userId) => {
+  await db.query(
+    'DELETE FROM password_resets WHERE user_id = $1 AND used = FALSE',
+    [userId]
+  );
+};
+
 module.exports = {
   createResetToken,
   findValidResetRecord,
   markUsed,
+  invalidateExistingTokens,
 };
 
 

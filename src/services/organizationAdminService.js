@@ -5,6 +5,7 @@ const {
   updateOrganizationStatus,
   deleteOrganization,
 } = require('../repository/organizationAdminRepository');
+const { updateOrganization } = require('../repository/organizationRepository');
 
 const getAllOrganizationsService = async ({ search, status, org_type, page = 1, limit = 10 }) => {
   const offset = (page - 1) * limit;
@@ -38,6 +39,10 @@ const updateOrganizationStatusService = async (organizationId, status) => {
   return await updateOrganizationStatus(organizationId, status);
 };
 
+const updateOrganizationService = async (organizationId, payload) => {
+  return await updateOrganization(organizationId, payload);
+};
+
 const deleteOrganizationService = async (organizationId) => {
   return await deleteOrganization(organizationId);
 };
@@ -46,5 +51,6 @@ module.exports = {
   getAllOrganizationsService,
   getOrganizationByIdService,
   updateOrganizationStatusService,
+  updateOrganizationService,
   deleteOrganizationService,
 };

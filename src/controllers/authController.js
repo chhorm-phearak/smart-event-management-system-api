@@ -14,11 +14,12 @@ const {
   findByVerificationToken,
   verifyEmail: verifyEmailInDb,
 } = require('../repository/userRepository');
-const { sendVerificationEmail } = require('../services/emailService');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 const {
   createResetToken,
   findValidResetRecord,
   markUsed,
+  invalidateExistingTokens,
 } = require('../repository/passwordResetRepository');
 const { findOrganizationByUserId } = require('../repository/organizationRepository');
 
@@ -34,7 +35,7 @@ const generateToken = (user) => {
 
 const register = async (req, res) => {
   try {
-    const { first_name, last_name, email, password, contact } = req.body;
+    const { first_name, last_name, email, password, contact, gender, organization } = req.body;
 
     if (!first_name || !last_name || !email || !password) {
       return res.status(400).json({ message: 'first_name, last_name, email and password are required' });
@@ -60,6 +61,8 @@ const register = async (req, res) => {
       last_name, 
       email, 
       password: hashed,
+      gender: gender || null,
+      organization: organization || null,
       status: 'PENDING',
       email_verification_token: verificationToken,
       email_verification_expires_at: verificationExpires,
@@ -91,6 +94,8 @@ const register = async (req, res) => {
           first_name: user.first_name, 
           last_name: user.last_name,
           email: user.email, 
+          gender: user.gender,
+          organization: user.organization,
           role_id: user.role_id,
           email_verified: false,
         },
@@ -185,9 +190,6 @@ const login = async (req, res) => {
   }
 };
 
-// naive forgot-password flow:
-// - generate reset_token stored in a separate table (created here)
-// - in real app, email this token; here we just return it in response for simplicity
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -197,20 +199,25 @@ const forgotPassword = async (req, res) => {
 
     const user = await findByEmail(email);
     if (!user) {
-      // do not reveal whether email exists
-      return res.json({ message: 'If that email exists, a reset token has been generated' });
+      return res.status(404).json({ message: 'We cannot find an account with this email address' });
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 15 minutes
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+
+    // Invalidate any previous unused tokens for this user
+    await invalidateExistingTokens(user.id);
 
     await createResetToken(user.id, resetToken, expiresAt);
 
-    // in production, send via email
-    return res.json({
-      message: 'Password reset token generated',
-      data: { reset_token: resetToken, expires_at: expiresAt },
-    });
+    try {
+      await sendPasswordResetEmail(email, resetToken, user.first_name);
+    } catch (emailErr) {
+      console.error('Failed to send password reset email:', emailErr);
+      return res.status(500).json({ message: 'Failed to send reset email. Please try again later.' });
+    }
+
+    return res.json({ message: 'We have sent a password reset link to your email' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Internal server error' });
@@ -222,6 +229,10 @@ const resetPassword = async (req, res) => {
     const { reset_token, new_password } = req.body;
     if (!reset_token || !new_password) {
       return res.status(400).json({ message: 'reset_token and new_password are required' });
+    }
+
+    if (new_password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
     }
 
     const record = await findValidResetRecord(reset_token);

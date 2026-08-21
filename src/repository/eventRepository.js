@@ -872,6 +872,17 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
 };
 
 // --- Event registration (register for event, unique qr_code generated) ---
+const findRegisteredUsersByEventId = async (eventId) => {
+  const result = await db.query(
+    `SELECT u.id, u.email, u.first_name, u.last_name
+     FROM event_registrations er
+     JOIN users u ON er.user_id = u.id
+     WHERE er.event_id = $1`,
+    [eventId]
+  );
+  return result.rows;
+};
+
 const findRegistrationByEventAndUser = async (eventId, userId) => {
   const result = await db.query(
     `SELECT * FROM event_registrations WHERE event_id = $1 AND user_id = $2`,
@@ -1043,6 +1054,7 @@ module.exports = {
   getManagedEventsSummary,
   getAllRegisteredEvents,
   getAllEventsByGroup,
+  findRegisteredUsersByEventId,
   findRegistrationByEventAndUser,
   createEventRegistration,
   findRegistrationById,

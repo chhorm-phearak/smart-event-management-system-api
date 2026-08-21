@@ -4,6 +4,7 @@ const {
   findLatestApplicationByUserId,
 } = require('../repository/organizationApplicationRepository');
 const { findOrganizationByUserId } = require('../repository/organizationRepository');
+const { createNotification } = require('./notificationService');
 
 class OrganizationRegistrationError extends Error {
   constructor(statusCode, message) {
@@ -61,6 +62,18 @@ const registerOrganization = async (
     email,
     description,
     status: 'PENDING',
+  });
+
+  // Notify the user that their application has been submitted
+  await createNotification({
+    user_id: userId,
+    type: 'SYSTEM',
+    title: 'Organization Application Submitted',
+    message: `Your organization application for "${application.org_name}" has been submitted and is pending review.`,
+    data: {
+      application_id: application.id,
+      action: 'organization_application_submitted',
+    },
   });
 
   return application;

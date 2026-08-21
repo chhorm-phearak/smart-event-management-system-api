@@ -16,12 +16,12 @@ const findByUsername = async (username) => {
   return result.rows[0];
 };
 
-const createUser = async ({ role_id, first_name, last_name, email, password, status = 'PENDING', email_verification_token = null, email_verification_expires_at = null }) => {
+const createUser = async ({ role_id, first_name, last_name, email, password, gender = null, organization = null, status = 'PENDING', email_verification_token = null, email_verification_expires_at = null }) => {
   const result = await db.query(
-    `INSERT INTO users (role_id, first_name, last_name, email, password, status, email_verified, email_verification_token, email_verification_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8)
+    `INSERT INTO users (role_id, first_name, last_name, email, password, gender, organization, status, email_verified, email_verification_token, email_verification_expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10)
      RETURNING *`,
-    [role_id, first_name, last_name, email, password, status, email_verification_token, email_verification_expires_at]
+    [role_id, first_name, last_name, email, password, gender, organization, status, email_verification_token, email_verification_expires_at]
   );
   return result.rows[0];
 };
@@ -192,6 +192,7 @@ const getUserProfile = async (userId) => {
       u.first_name,
       u.last_name,
       u.email,
+      u.organization,
       u.gender,
       u.status,
       u.role_id,
