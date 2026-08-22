@@ -70,7 +70,7 @@ const findEventById = async (eventId) => {
       g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
      WHERE e.id = $1
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)`,
     [eventId]
@@ -492,7 +492,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
         (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
-      LEFT JOIN groups g ON e.group_id = g.id
+      LEFT JOIN \`groups\` g ON e.group_id = g.id
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
         AND e.group_id IS NULL
       ORDER BY e.created_at DESC
@@ -517,7 +517,7 @@ const getAllEvents = async (organizationId, userId, userRole, page = 1, limit = 
         (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as number_of_registered
       FROM events e
       LEFT JOIN organizations o ON e.organization_id = o.id
-      LEFT JOIN groups g ON e.group_id = g.id
+      LEFT JOIN \`groups\` g ON e.group_id = g.id
       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
         AND e.group_id IS NULL
         AND (e.organization_id IN (
@@ -641,7 +641,7 @@ const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) =
       img.image_url AS primary_image_url
     FROM events e
     LEFT JOIN organizations o ON e.organization_id = o.id
-    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN \`groups\` g ON e.group_id = g.id
     LEFT JOIN (
       SELECT event_id, COUNT(*)::int AS registered_count
       FROM event_registrations
@@ -746,7 +746,7 @@ const getAllRegisteredEvents = async (userId, page = 1, limit = 10) => {
      FROM event_registrations er
      INNER JOIN events e ON er.event_id = e.id
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
      WHERE er.user_id = $1
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY er.registered_at DESC
@@ -791,7 +791,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
   // First check if user has access to this group
   const groupCheck = await db.query(
     `SELECT g.*, o.user_id as org_owner_id
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
      WHERE g.id = $1`,
     [groupId]
@@ -832,7 +832,7 @@ const getAllEventsByGroup = async (groupId, userId, userRole, page = 1, limit = 
     `SELECT e.*, o.org_name as organization_name, g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
      WHERE e.group_id = $1
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY e.created_at DESC

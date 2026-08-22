@@ -30,7 +30,7 @@ const findByToken = async (token) => {
             o.org_name AS organization_name,
             o.id AS organization_id
      FROM invite_links il
-     JOIN groups g ON il.group_id = g.id
+     JOIN \`groups\` g ON il.group_id = g.id
      JOIN organizations o ON il.created_by = o.id
      WHERE il.token = $1 AND il.is_active = TRUE AND il.is_expired = FALSE`,
     [token]
@@ -45,7 +45,7 @@ const findById = async (id) => {
             o.org_name AS organization_name,
             o.id AS organization_id
      FROM invite_links il
-     JOIN groups g ON il.group_id = g.id
+     JOIN \`groups\` g ON il.group_id = g.id
      JOIN organizations o ON il.created_by = o.id
      WHERE il.id = $1`,
     [id]

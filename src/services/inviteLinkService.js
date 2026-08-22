@@ -250,7 +250,7 @@ const getOrganizationLatestInviteLinks = async (organizationId) => {
   // Get all groups for the organization
   const groupsResult = await db.query(
     `SELECT id, name, description 
-     FROM groups 
+     FROM \`groups\` 
      WHERE organization_id = $1`,
     [organizationId]
   );

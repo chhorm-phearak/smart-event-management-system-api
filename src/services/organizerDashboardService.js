@@ -115,7 +115,7 @@ const getEventsByOrganizerId = async (organizerId, page = 1, limit = 10) => {
     `SELECT e.*, o.org_name as organization_name, g.name as group_name
      FROM events e
      LEFT JOIN organizations o ON e.organization_id = o.id
-     LEFT JOIN groups g ON e.group_id = g.id
+     LEFT JOIN \`groups\` g ON e.group_id = g.id
      WHERE e.organization_id = ANY($1::uuid[])
        AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
      ORDER BY e.created_at DESC
