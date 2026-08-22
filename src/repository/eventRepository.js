@@ -652,13 +652,13 @@ const getManagedEventsSummary = async (userId, userRole, page = 1, limit = 10) =
       FROM event_staff
       GROUP BY event_id
     ) staff ON staff.event_id = e.id
-    LEFT JOIN LATERAL (
-      SELECT image_url
-      FROM event_images
-      WHERE event_id = e.id
-      ORDER BY created_at DESC
+    LEFT JOIN event_images img ON img.id = (
+      SELECT ei.id
+      FROM event_images ei
+      WHERE ei.event_id = e.id
+      ORDER BY ei.created_at DESC
       LIMIT 1
-    ) img ON TRUE
+    )
     ${whereClause}
     ORDER BY e.start_time DESC NULLS LAST, e.created_at DESC
     LIMIT $${limitIndex} OFFSET $${offsetIndex}
