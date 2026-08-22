@@ -254,6 +254,13 @@ const searchUsersByEmail = async ({ email, limit = 10, offset = 0 } = {}) => {
   return result.rows;
 };
 
+const findAdminUserIds = async () => {
+  const result = await db.query(
+    `SELECT id FROM users WHERE role_id = 'admin_role' AND is_deleted = FALSE`,
+  );
+  return result.rows.map((user) => user.id);
+};
+
 module.exports = {
   findByEmail,
   findByUsername,
@@ -268,6 +275,7 @@ module.exports = {
   getUserProfile,
   listUsers,
   searchUsersByEmail,
+  findAdminUserIds,
 };
 
 

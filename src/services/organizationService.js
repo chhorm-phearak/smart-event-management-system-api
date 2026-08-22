@@ -3,8 +3,11 @@ const {
   findPendingApplicationByUserId,
   findLatestApplicationByUserId,
 } = require('../repository/organizationApplicationRepository');
-const { findOrganizationByUserId } = require('../repository/organizationRepository');
-const { createNotification } = require('./notificationService');
+const {
+  findOrganizationByUserId,
+} = require('../repository/organizationRepository');
+const { findAdminUserIds } = require('../repository/userRepository');
+const { createNotification, createNotifications } = require('./notificationService');
 
 class OrganizationRegistrationError extends Error {
   constructor(statusCode, message) {
@@ -75,6 +78,24 @@ const registerOrganization = async (
       action: 'organization_application_submitted',
     },
   });
+
+  // Notify all admins about the new application
+  const adminIds = await findAdminUserIds();
+  if (adminIds && adminIds.length > 0) {
+    await createNotifications(
+      adminIds.map((adminId) => ({
+        user_id: adminId,
+        type: 'SYSTEM',
+        title: 'New Organization Application',
+        message: `A new organization application for "${application.org_name}" has been submitted and is pending review.`,
+        actor_user_id: userId,
+        data: {
+          application_id: application.id,
+          action: 'new_organization_application',
+        },
+      })),
+    );
+  }
 
   return application;
 };

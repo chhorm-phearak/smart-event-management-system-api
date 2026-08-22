@@ -3,12 +3,14 @@ const notificationService = require('../services/notificationService');
 const getAll = async (req, res) => {
   try {
     const userId = req.user.id;
+    const isAdmin = req.user.role_id === 'admin_role';
     const page = parseInt(req.query.page, 10) || 1;
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
-    const is_read = req.query.is_read;
     let isReadFilter = null;
-    if (req.query.is_read === 'true') isReadFilter = true;
-    if (req.query.is_read === 'false') isReadFilter = false;
+    if (!isAdmin) {
+      if (req.query.is_read === 'true') isReadFilter = true;
+      if (req.query.is_read === 'false') isReadFilter = false;
+    }
 
     const result = await notificationService.getNotificationsForUser(userId, {
       page,
@@ -16,9 +18,14 @@ const getAll = async (req, res) => {
       is_read: isReadFilter,
     });
 
+    const notifications = result.notifications.map((n) => ({
+      ...n,
+      status: n.is_read ? 'read' : 'unread',
+    }));
+
     return res.json({
       message: 'Notifications retrieved successfully',
-      data: result.notifications,
+      data: notifications,
       pagination: result.pagination,
     });
   } catch (err) {
