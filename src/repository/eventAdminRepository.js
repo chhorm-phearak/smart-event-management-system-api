@@ -83,7 +83,7 @@ const getAllEvents = async ({ search, status, category, organization_id, limit =
       COALESCE(regs.registered_count, 0) AS registered_count
     FROM events e
     LEFT JOIN organizations o ON e.organization_id = o.id
-    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN \`groups\` g ON e.group_id = g.id
     LEFT JOIN users u ON e.created_by = u.id
     LEFT JOIN (
       SELECT event_id, COUNT(*)::int AS registered_count
@@ -132,7 +132,7 @@ const getEventById = async (eventId) => {
       COALESCE(regs.registered_count, 0) AS registered_count
     FROM events e
     LEFT JOIN organizations o ON e.organization_id = o.id
-    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN \`groups\` g ON e.group_id = g.id
     LEFT JOIN users u ON e.created_by = u.id
     LEFT JOIN (
       SELECT event_id, COUNT(*)::int AS registered_count

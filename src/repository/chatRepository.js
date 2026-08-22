@@ -265,7 +265,7 @@ const getUserConversations = async (userId, search = null) => {
               WHERE r.message_id = m.id AND r.user_id = $1
             )
         ) AS unread_count
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1
      LEFT JOIN LATERAL (
@@ -343,7 +343,7 @@ const searchUserMessages = async (userId, query, { limit = 50 } = {}) => {
             u.email      AS sender_email,
             up.img_url   AS sender_img_url
      FROM chat_messages m
-     INNER JOIN groups g ON m.group_id = g.id AND g.is_deleted = FALSE
+     INNER JOIN \`groups\` g ON m.group_id = g.id AND g.is_deleted = FALSE
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1
      LEFT JOIN users u ON m.sender_id = u.id

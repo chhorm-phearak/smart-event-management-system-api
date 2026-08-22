@@ -2,7 +2,7 @@ const db = require('../config/db');
 
 const createGroup = async ({ organization_id, created_by, name, description, image_url }) => {
   const result = await db.query(
-    `INSERT INTO groups (organization_id, created_by, name, description, image_url)
+    `INSERT INTO \`groups\` (organization_id, created_by, name, description, image_url)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
     [organization_id, created_by, name, description || null, image_url || null]
@@ -13,7 +13,7 @@ const createGroup = async ({ organization_id, created_by, name, description, ima
 const findGroupById = async (groupId) => {
   const result = await db.query(
     `SELECT g.*, o.org_name as organization_name, o.user_id as org_owner_id
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
      WHERE g.id = $1 AND g.is_deleted = FALSE`,
     [groupId]
@@ -25,7 +25,7 @@ const getAllGroupsByOrganization = async (organizationId) => {
   const result = await db.query(
     `SELECT g.*, o.org_name as organization_name,
      (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
      WHERE g.organization_id = $1 AND g.is_deleted = FALSE
      ORDER BY g.created_at DESC`,
@@ -57,7 +57,7 @@ const updateGroup = async (groupId, { name, description, image_url }) => {
   }
 
   values.push(groupId);
-  const query = `UPDATE groups SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
+  const query = `UPDATE \`groups\` SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
   const result = await db.query(query, values);
   return result.rows[0];
 };
@@ -83,7 +83,7 @@ const deleteGroup = async (groupId) => {
     await db.query('DELETE FROM events WHERE id = $1', [eventId]);
   }
 
-  const result = await db.query('DELETE FROM groups WHERE id = $1 RETURNING *', [groupId]);
+  const result = await db.query('DELETE FROM `groups` WHERE id = $1 RETURNING *', [groupId]);
   return result.rows[0];
 };
 
@@ -138,7 +138,7 @@ const getUserGroups = async (userId) => {
     `SELECT DISTINCT g.*, o.org_name as organization_name, o.user_id as org_owner_id,
      (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count,
      (SELECT COUNT(*) FROM events WHERE group_id = g.id) as event_count
-     FROM groups g
+     FROM \`groups\` g
      LEFT JOIN organizations o ON g.organization_id = o.id
      LEFT JOIN group_members gm ON g.id = gm.group_id
      WHERE (gm.user_id = $1 OR o.user_id = $1) AND g.is_deleted = FALSE

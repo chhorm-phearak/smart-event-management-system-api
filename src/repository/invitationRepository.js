@@ -38,7 +38,7 @@ const findById = async (id) => {
             g.name AS group_name
      FROM invitations i
      LEFT JOIN organizations o ON i.organization_id = o.id
-     LEFT JOIN groups g ON i.group_id = g.id
+     LEFT JOIN \`groups\` g ON i.group_id = g.id
      WHERE i.id = $1 AND (i.is_deleted = FALSE OR i.is_deleted IS NULL)`,
     [id]
   );
@@ -64,7 +64,7 @@ const getReceivedByUserId = async (userId, { page = 1, limit = 20, status = null
             u_inviter.first_name AS inviter_first_name, u_inviter.last_name AS inviter_last_name, u_inviter.email AS inviter_email
      FROM invitations i
      LEFT JOIN organizations o ON i.organization_id = o.id
-     LEFT JOIN groups g ON i.group_id = g.id
+     LEFT JOIN \`groups\` g ON i.group_id = g.id
      LEFT JOIN users u_inviter ON i.invited_by = u_inviter.id
      WHERE ${where}
      ORDER BY i.created_at DESC
@@ -96,7 +96,7 @@ const getSentByUserId = async (userId, { page = 1, limit = 20, status = null } =
             u.first_name AS invited_first_name, u.last_name AS invited_last_name, u.email AS invited_email
      FROM invitations i
      LEFT JOIN organizations o ON i.organization_id = o.id
-     LEFT JOIN groups g ON i.group_id = g.id
+     LEFT JOIN \`groups\` g ON i.group_id = g.id
      LEFT JOIN users u ON i.invited_user_id = u.id
      WHERE ${where}
      ORDER BY i.created_at DESC
