@@ -2,9 +2,13 @@
 -- MySQL merged schema
 -- Converted from PostgreSQL migrations in db/
 -- =====================================================
--- Run against an existing MySQL 8.0+ database:
+-- Run against an existing MySQL 8.0+ database, either from the command line
 --   mysql -u <user> -p <database> < db/mySql_script.sql
+-- or from MySQL Workbench (File > Open SQL Script, then Execute).
 -- Notes:
+--   - Plain MySQL 8.0 syntax only: no MariaDB-only constructs such as
+--     DROP INDEX IF EXISTS or writable stored functions.
+--   - Re-runnable: every object is created only when it is missing.
 --   - UUID columns use VARCHAR(36). The triggers below auto-generate
 --     a UUID() when id is left NULL/empty.
 --   - PostgreSQL partial indexes are approximated as best-effort.
@@ -25,7 +29,7 @@ CREATE TABLE IF NOT EXISTS `roles` (
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT IGNORE INTO `roles` (role_id, name, description) VALUES
 ('user_role', 'User', 'Regular user with standard permissions'),
@@ -44,20 +48,20 @@ CREATE TABLE IF NOT EXISTS `users` (
     gender VARCHAR(20) DEFAULT NULL,
     status VARCHAR(20) DEFAULT 'ACTIVE',
     role_id VARCHAR(50) NOT NULL DEFAULT 'user_role',
-    email_verified TINYINT(1) DEFAULT 0,
+    email_verified BOOLEAN DEFAULT 0,
     email_verification_token TEXT,
     email_verification_expires_at DATETIME DEFAULT NULL,
     failed_login_attempts INT DEFAULT 0,
-    account_locked TINYINT(1) DEFAULT 0,
+    account_locked BOOLEAN DEFAULT 0,
     lockout_until DATETIME DEFAULT NULL,
     last_failed_login DATETIME DEFAULT NULL,
     lockout_count INT DEFAULT 0,
     organization VARCHAR(200) DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_users_role FOREIGN KEY (role_id) REFERENCES `roles`(role_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- USER PROFILE
@@ -73,11 +77,11 @@ CREATE TABLE IF NOT EXISTS `user_profile` (
     gender VARCHAR(20) DEFAULT NULL,
     address TEXT,
     date_of_birth DATE DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_profile_user FOREIGN KEY (user_id) REFERENCES `users`(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- ORGANIZATION APPLICATIONS
@@ -93,11 +97,11 @@ CREATE TABLE IF NOT EXISTS `organization_applications` (
     status VARCHAR(20) DEFAULT 'PENDING',
     reviewed_by VARCHAR(36) DEFAULT NULL,
     reviewed_at DATETIME DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_org_app_user FOREIGN KEY (user_id) REFERENCES `users`(id),
     CONSTRAINT fk_org_app_reviewer FOREIGN KEY (reviewed_by) REFERENCES `users`(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- ORGANIZATIONS
@@ -111,10 +115,10 @@ CREATE TABLE IF NOT EXISTS `organizations` (
     email VARCHAR(150) DEFAULT NULL,
     description TEXT,
     status VARCHAR(20) DEFAULT 'ACTIVE',
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_org_owner FOREIGN KEY (user_id) REFERENCES `users`(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- ORGANIZATION MEMBERS
@@ -124,11 +128,11 @@ CREATE TABLE IF NOT EXISTS `organization_members` (
     organization_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     CONSTRAINT fk_org_member_org FOREIGN KEY (organization_id) REFERENCES `organizations`(id),
     CONSTRAINT fk_org_member_user FOREIGN KEY (user_id) REFERENCES `users`(id),
     CONSTRAINT uq_org_member UNIQUE (organization_id, user_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- GROUPS
@@ -140,11 +144,11 @@ CREATE TABLE IF NOT EXISTS `groups` (
     description TEXT,
     image_url TEXT,
     created_by VARCHAR(36) NOT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_group_org FOREIGN KEY (organization_id) REFERENCES `organizations`(id),
     CONSTRAINT fk_group_creator FOREIGN KEY (created_by) REFERENCES `users`(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- GROUP MEMBERS
@@ -154,11 +158,11 @@ CREATE TABLE IF NOT EXISTS `group_members` (
     group_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     CONSTRAINT fk_group_member_group FOREIGN KEY (group_id) REFERENCES `groups`(id),
     CONSTRAINT fk_group_member_user FOREIGN KEY (user_id) REFERENCES `users`(id),
     CONSTRAINT uq_group_member UNIQUE (group_id, user_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- EVENTS
@@ -179,14 +183,14 @@ CREATE TABLE IF NOT EXISTS `events` (
     location VARCHAR(200) DEFAULT NULL,
     full_address TEXT,
     status VARCHAR(20) DEFAULT 'DRAFT',
-    is_public TINYINT(1) DEFAULT 1,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_public BOOLEAN DEFAULT 1,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_event_org FOREIGN KEY (organization_id) REFERENCES `organizations`(id),
     CONSTRAINT fk_event_group FOREIGN KEY (group_id) REFERENCES `groups`(id),
     CONSTRAINT fk_event_creator FOREIGN KEY (created_by) REFERENCES `users`(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- EVENT AGENDA
@@ -199,11 +203,11 @@ CREATE TABLE IF NOT EXISTS `event_agenda` (
     start_time DATETIME DEFAULT NULL,
     end_time DATETIME DEFAULT NULL,
     duration INT DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_agenda_event FOREIGN KEY (event_id) REFERENCES `events`(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- EVENT REGISTRATIONS
@@ -215,13 +219,13 @@ CREATE TABLE IF NOT EXISTS `event_registrations` (
     qr_code TEXT NOT NULL,
     qr_image_path TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'REGISTERED',
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_registration_event FOREIGN KEY (event_id) REFERENCES `events`(id),
     CONSTRAINT fk_registration_user FOREIGN KEY (user_id) REFERENCES `users`(id),
     CONSTRAINT uq_event_registration UNIQUE (event_id, user_id),
     CONSTRAINT chk_event_registrations_status CHECK (status IN ('REGISTERED', 'CHECKED_IN', 'CANCELLED'))
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- ATTENDANCE LOGS
@@ -235,7 +239,7 @@ CREATE TABLE IF NOT EXISTS `attendance_logs` (
     CONSTRAINT fk_attendance_registration FOREIGN KEY (registration_id) REFERENCES `event_registrations`(id),
     CONSTRAINT fk_attendance_staff FOREIGN KEY (scanned_by) REFERENCES `users`(id),
     CONSTRAINT uq_attendance UNIQUE (registration_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- EVENT STAFF
@@ -245,12 +249,12 @@ CREATE TABLE IF NOT EXISTS `event_staff` (
     event_id VARCHAR(36) NOT NULL,
     organization_member_id VARCHAR(36) NOT NULL,
     `role` VARCHAR(50) DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_staff_event FOREIGN KEY (event_id) REFERENCES `events`(id),
     CONSTRAINT fk_staff_member FOREIGN KEY (organization_member_id) REFERENCES `organization_members`(id),
     CONSTRAINT uq_event_staff UNIQUE (event_id, organization_member_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- EVENT IMAGES
@@ -260,10 +264,10 @@ CREATE TABLE IF NOT EXISTS `event_images` (
     event_id VARCHAR(36) NOT NULL,
     image_url TEXT NOT NULL,
     description TEXT,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_event_image FOREIGN KEY (event_id) REFERENCES `events`(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- EVENT FEEDBACK
@@ -274,14 +278,14 @@ CREATE TABLE IF NOT EXISTS `event_feedback` (
     user_id VARCHAR(36) NOT NULL,
     rating INT,
     comment TEXT,
-    is_read TINYINT(1) DEFAULT 0,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_read BOOLEAN DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_feedback_event FOREIGN KEY (event_id) REFERENCES `events`(id),
     CONSTRAINT fk_feedback_user FOREIGN KEY (user_id) REFERENCES `users`(id),
     CONSTRAINT uq_event_feedback UNIQUE (event_id, user_id),
     CONSTRAINT chk_event_feedback_rating CHECK (rating BETWEEN 1 AND 5)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- INVITATIONS
@@ -298,7 +302,7 @@ CREATE TABLE IF NOT EXISTS `invitations` (
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     message TEXT,
     responded_at DATETIME DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_invitation_org FOREIGN KEY (organization_id) REFERENCES `organizations`(id),
@@ -312,7 +316,7 @@ CREATE TABLE IF NOT EXISTS `invitations` (
         (target_type = 'GROUP' AND group_id IS NOT NULL AND organization_id IS NULL)
     ),
     CONSTRAINT ck_invitation_recipient CHECK (invited_user_id IS NOT NULL OR invited_email IS NOT NULL)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- NOTIFICATIONS
@@ -323,7 +327,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
     event_id VARCHAR(36) DEFAULT NULL,
     title VARCHAR(150) DEFAULT NULL,
     message TEXT,
-    is_read TINYINT(1) DEFAULT 0,
+    is_read BOOLEAN DEFAULT 0,
     type VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
     actor_user_id VARCHAR(36) DEFAULT NULL,
     organization_id VARCHAR(36) DEFAULT NULL,
@@ -331,7 +335,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
     invitation_id VARCHAR(36) DEFAULT NULL,
     `data` JSON DEFAULT NULL,
     read_at DATETIME DEFAULT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES `users`(id),
@@ -340,7 +344,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
     CONSTRAINT fk_notification_org FOREIGN KEY (organization_id) REFERENCES `organizations`(id),
     CONSTRAINT fk_notification_group FOREIGN KEY (group_id) REFERENCES `groups`(id),
     CONSTRAINT fk_notification_invitation FOREIGN KEY (invitation_id) REFERENCES `invitations`(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- PASSWORD RESETS
@@ -350,10 +354,10 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
     user_id VARCHAR(36) NOT NULL,
     reset_token TEXT NOT NULL,
     expires_at DATETIME NOT NULL,
-    used TINYINT(1) DEFAULT 0,
+    used BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES `users`(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- FILES
@@ -367,10 +371,10 @@ CREATE TABLE IF NOT EXISTS `files` (
     file_size BIGINT DEFAULT 0,
     type VARCHAR(100) DEFAULT NULL,
     uploaded_by VARCHAR(36) NOT NULL,
-    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_file_uploader FOREIGN KEY (uploaded_by) REFERENCES `users`(id) ON DELETE RESTRICT
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- INVITE LINKS
@@ -383,8 +387,8 @@ CREATE TABLE IF NOT EXISTS `invite_links` (
     expires_at DATETIME DEFAULT NULL,
     max_uses INT DEFAULT 1,
     current_uses INT DEFAULT 0,
-    is_active TINYINT(1) DEFAULT 1,
-    is_expired TINYINT(1) DEFAULT 0,
+    is_active BOOLEAN DEFAULT 1,
+    is_expired BOOLEAN DEFAULT 0,
     message TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -393,7 +397,7 @@ CREATE TABLE IF NOT EXISTS `invite_links` (
     CONSTRAINT ck_invite_link_max_uses CHECK (max_uses > 0),
     CONSTRAINT ck_invite_link_current_uses CHECK (current_uses >= 0),
     CONSTRAINT ck_invite_link_usage_limit CHECK (current_uses <= max_uses)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- CHAT MESSAGES
@@ -405,8 +409,8 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     content TEXT,
     message_type VARCHAR(20) NOT NULL DEFAULT 'text',
     reply_to_id VARCHAR(36) DEFAULT NULL,
-    is_edited TINYINT(1) DEFAULT 0,
-    is_deleted TINYINT(1) DEFAULT 0,
+    is_edited BOOLEAN DEFAULT 0,
+    is_deleted BOOLEAN DEFAULT 0,
     scope VARCHAR(20) NOT NULL DEFAULT 'group',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -415,7 +419,7 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     CONSTRAINT fk_chat_message_reply FOREIGN KEY (reply_to_id) REFERENCES `chat_messages`(id) ON DELETE SET NULL,
     CONSTRAINT ck_chat_message_type CHECK (message_type IN ('text', 'file', 'mixed')),
     CONSTRAINT ck_chat_message_scope CHECK (scope IN ('group', 'global'))
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- CHAT MESSAGE FILES
@@ -430,7 +434,7 @@ CREATE TABLE IF NOT EXISTS `chat_message_files` (
     scope VARCHAR(20) NOT NULL DEFAULT 'group',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_chat_file_message FOREIGN KEY (message_id) REFERENCES `chat_messages`(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
 -- CHAT MESSAGE READS
@@ -444,126 +448,85 @@ CREATE TABLE IF NOT EXISTS `chat_message_reads` (
     CONSTRAINT fk_chat_read_message FOREIGN KEY (message_id) REFERENCES `chat_messages`(id) ON DELETE CASCADE,
     CONSTRAINT fk_chat_read_user FOREIGN KEY (user_id) REFERENCES `users`(id) ON DELETE CASCADE,
     CONSTRAINT uq_chat_read UNIQUE (message_id, user_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- =====================================================
 -- INDEXES
 -- =====================================================
-DROP INDEX IF EXISTS idx_files_uploaded_by ON `files`;
-CREATE INDEX idx_files_uploaded_by ON `files`(uploaded_by);
+-- MySQL has no `CREATE INDEX IF NOT EXISTS` / `DROP INDEX IF EXISTS`
+-- (those are MariaDB-only), so indexes are created through this helper
+-- which checks information_schema first. It is dropped again below.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS create_index_if_missing$$
+CREATE PROCEDURE create_index_if_missing(
+    IN p_table VARCHAR(64),
+    IN p_index VARCHAR(64),
+    IN p_columns VARCHAR(1000),
+    IN p_unique TINYINT
+)
+MODIFIES SQL DATA
+BEGIN
+    DECLARE v_exists INT DEFAULT 0;
 
-DROP INDEX IF EXISTS idx_files_created_at ON `files`;
-CREATE INDEX idx_files_created_at ON `files`(created_at DESC);
+    SELECT COUNT(*) INTO v_exists
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = p_table
+      AND index_name = p_index;
 
-DROP INDEX IF EXISTS uq_invitation_pending_org_user ON `invitations`;
-CREATE UNIQUE INDEX uq_invitation_pending_org_user ON `invitations`(organization_id, invited_user_id, status);
+    IF v_exists = 0 THEN
+        SET @ddl = CONCAT('CREATE ', IF(p_unique = 1, 'UNIQUE ', ''),
+                          'INDEX `', p_index, '` ON `', p_table, '` ', p_columns);
+        PREPARE stmt FROM @ddl;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END$$
+DELIMITER ;
 
-DROP INDEX IF EXISTS uq_invitation_pending_group_user ON `invitations`;
-CREATE UNIQUE INDEX uq_invitation_pending_group_user ON `invitations`(group_id, invited_user_id, status);
+CALL create_index_if_missing('files', 'idx_files_uploaded_by', '(uploaded_by)', 0);
+CALL create_index_if_missing('files', 'idx_files_created_at', '(created_at DESC)', 0);
+CALL create_index_if_missing('invitations', 'uq_invitation_pending_org_user', '(organization_id, invited_user_id, status)', 1);
+CALL create_index_if_missing('invitations', 'uq_invitation_pending_group_user', '(group_id, invited_user_id, status)', 1);
+CALL create_index_if_missing('invitations', 'uq_invitation_pending_org_email', '(organization_id, invited_email, status)', 1);
+CALL create_index_if_missing('invitations', 'uq_invitation_pending_group_email', '(group_id, invited_email, status)', 1);
+CALL create_index_if_missing('invitations', 'idx_invitations_invited_user_id', '(invited_user_id)', 0);
+CALL create_index_if_missing('invitations', 'idx_invitations_invited_email', '(invited_email)', 0);
+CALL create_index_if_missing('invitations', 'idx_invitations_invited_by', '(invited_by)', 0);
+CALL create_index_if_missing('invitations', 'idx_invitations_status', '(status)', 0);
+CALL create_index_if_missing('invitations', 'idx_invitations_created_at', '(created_at DESC)', 0);
+CALL create_index_if_missing('invite_links', 'idx_invite_links_token', '(token)', 0);
+CALL create_index_if_missing('invite_links', 'idx_invite_links_group_id', '(group_id)', 0);
+CALL create_index_if_missing('invite_links', 'idx_invite_links_created_by', '(created_by)', 0);
+CALL create_index_if_missing('invite_links', 'idx_invite_links_is_active', '(is_active)', 0);
+CALL create_index_if_missing('invite_links', 'idx_invite_links_is_expired', '(is_expired)', 0);
+CALL create_index_if_missing('invite_links', 'idx_invite_links_expires_at', '(expires_at)', 0);
+CALL create_index_if_missing('users', 'idx_users_account_locked', '(account_locked)', 0);
+CALL create_index_if_missing('users', 'idx_users_lockout_until', '(lockout_until)', 0);
+CALL create_index_if_missing('chat_messages', 'idx_chat_messages_group_id', '(group_id)', 0);
+CALL create_index_if_missing('chat_messages', 'idx_chat_messages_sender_id', '(sender_id)', 0);
+CALL create_index_if_missing('chat_messages', 'idx_chat_messages_created_at', '(created_at DESC)', 0);
+CALL create_index_if_missing('chat_messages', 'idx_chat_messages_group_created', '(group_id, created_at DESC)', 0);
+CALL create_index_if_missing('chat_message_files', 'idx_chat_message_files_message_id', '(message_id)', 0);
+CALL create_index_if_missing('chat_message_reads', 'idx_chat_message_reads_message_id', '(message_id)', 0);
+CALL create_index_if_missing('chat_message_reads', 'idx_chat_message_reads_user_id', '(user_id)', 0);
+CALL create_index_if_missing('chat_messages', 'idx_chat_messages_scope', '(scope)', 0);
+CALL create_index_if_missing('chat_messages', 'idx_chat_messages_scope_created', '(scope, created_at DESC)', 0);
+CALL create_index_if_missing('chat_message_files', 'idx_chat_message_files_scope', '(scope)', 0);
+CALL create_index_if_missing('chat_message_reads', 'idx_chat_message_reads_scope', '(scope)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_user_read_created', '(user_id, is_read, created_at DESC)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_type', '(type)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_event_id', '(event_id)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_group_id', '(group_id)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_org_id', '(organization_id)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_invitation_id', '(invitation_id)', 0);
+CALL create_index_if_missing('notifications', 'idx_notifications_created_at', '(created_at DESC)', 0);
+-- qr_image_path is TEXT, so MySQL requires an explicit key prefix length.
+CALL create_index_if_missing('event_registrations', 'idx_event_registrations_qr_image_path', '(qr_image_path(255))', 0);
 
-DROP INDEX IF EXISTS uq_invitation_pending_org_email ON `invitations`;
-CREATE UNIQUE INDEX uq_invitation_pending_org_email ON `invitations`(organization_id, invited_email, status);
-
-DROP INDEX IF EXISTS uq_invitation_pending_group_email ON `invitations`;
-CREATE UNIQUE INDEX uq_invitation_pending_group_email ON `invitations`(group_id, invited_email, status);
-
-DROP INDEX IF EXISTS idx_invitations_invited_user_id ON `invitations`;
-CREATE INDEX idx_invitations_invited_user_id ON `invitations`(invited_user_id);
-
-DROP INDEX IF EXISTS idx_invitations_invited_email ON `invitations`;
-CREATE INDEX idx_invitations_invited_email ON `invitations`(invited_email);
-
-DROP INDEX IF EXISTS idx_invitations_invited_by ON `invitations`;
-CREATE INDEX idx_invitations_invited_by ON `invitations`(invited_by);
-
-DROP INDEX IF EXISTS idx_invitations_status ON `invitations`;
-CREATE INDEX idx_invitations_status ON `invitations`(status);
-
-DROP INDEX IF EXISTS idx_invitations_created_at ON `invitations`;
-CREATE INDEX idx_invitations_created_at ON `invitations`(created_at DESC);
-
-DROP INDEX IF EXISTS idx_invite_links_token ON `invite_links`;
-CREATE INDEX idx_invite_links_token ON `invite_links`(token);
-
-DROP INDEX IF EXISTS idx_invite_links_group_id ON `invite_links`;
-CREATE INDEX idx_invite_links_group_id ON `invite_links`(group_id);
-
-DROP INDEX IF EXISTS idx_invite_links_created_by ON `invite_links`;
-CREATE INDEX idx_invite_links_created_by ON `invite_links`(created_by);
-
-DROP INDEX IF EXISTS idx_invite_links_is_active ON `invite_links`;
-CREATE INDEX idx_invite_links_is_active ON `invite_links`(is_active);
-
-DROP INDEX IF EXISTS idx_invite_links_is_expired ON `invite_links`;
-CREATE INDEX idx_invite_links_is_expired ON `invite_links`(is_expired);
-
-DROP INDEX IF EXISTS idx_invite_links_expires_at ON `invite_links`;
-CREATE INDEX idx_invite_links_expires_at ON `invite_links`(expires_at);
-
-DROP INDEX IF EXISTS idx_users_account_locked ON `users`;
-CREATE INDEX idx_users_account_locked ON `users`(account_locked);
-
-DROP INDEX IF EXISTS idx_users_lockout_until ON `users`;
-CREATE INDEX idx_users_lockout_until ON `users`(lockout_until);
-
-DROP INDEX IF EXISTS idx_chat_messages_group_id ON `chat_messages`;
-CREATE INDEX idx_chat_messages_group_id ON `chat_messages`(group_id);
-
-DROP INDEX IF EXISTS idx_chat_messages_sender_id ON `chat_messages`;
-CREATE INDEX idx_chat_messages_sender_id ON `chat_messages`(sender_id);
-
-DROP INDEX IF EXISTS idx_chat_messages_created_at ON `chat_messages`;
-CREATE INDEX idx_chat_messages_created_at ON `chat_messages`(created_at DESC);
-
-DROP INDEX IF EXISTS idx_chat_messages_group_created ON `chat_messages`;
-CREATE INDEX idx_chat_messages_group_created ON `chat_messages`(group_id, created_at DESC);
-
-DROP INDEX IF EXISTS idx_chat_message_files_message_id ON `chat_message_files`;
-CREATE INDEX idx_chat_message_files_message_id ON `chat_message_files`(message_id);
-
-DROP INDEX IF EXISTS idx_chat_message_reads_message_id ON `chat_message_reads`;
-CREATE INDEX idx_chat_message_reads_message_id ON `chat_message_reads`(message_id);
-
-DROP INDEX IF EXISTS idx_chat_message_reads_user_id ON `chat_message_reads`;
-CREATE INDEX idx_chat_message_reads_user_id ON `chat_message_reads`(user_id);
-
-DROP INDEX IF EXISTS idx_chat_messages_scope ON `chat_messages`;
-CREATE INDEX idx_chat_messages_scope ON `chat_messages`(scope);
-
-DROP INDEX IF EXISTS idx_chat_messages_scope_created ON `chat_messages`;
-CREATE INDEX idx_chat_messages_scope_created ON `chat_messages`(scope, created_at DESC);
-
-DROP INDEX IF EXISTS idx_chat_message_files_scope ON `chat_message_files`;
-CREATE INDEX idx_chat_message_files_scope ON `chat_message_files`(scope);
-
-DROP INDEX IF EXISTS idx_chat_message_reads_scope ON `chat_message_reads`;
-CREATE INDEX idx_chat_message_reads_scope ON `chat_message_reads`(scope);
-
-DROP INDEX IF EXISTS idx_notifications_user_read_created ON `notifications`;
-CREATE INDEX idx_notifications_user_read_created ON `notifications`(user_id, is_read, created_at DESC);
-
-DROP INDEX IF EXISTS idx_notifications_type ON `notifications`;
-CREATE INDEX idx_notifications_type ON `notifications`(type);
-
-DROP INDEX IF EXISTS idx_notifications_event_id ON `notifications`;
-CREATE INDEX idx_notifications_event_id ON `notifications`(event_id);
-
-DROP INDEX IF EXISTS idx_notifications_group_id ON `notifications`;
-CREATE INDEX idx_notifications_group_id ON `notifications`(group_id);
-
-DROP INDEX IF EXISTS idx_notifications_org_id ON `notifications`;
-CREATE INDEX idx_notifications_org_id ON `notifications`(organization_id);
-
-DROP INDEX IF EXISTS idx_notifications_invitation_id ON `notifications`;
-CREATE INDEX idx_notifications_invitation_id ON `notifications`(invitation_id);
-
-DROP INDEX IF EXISTS idx_notifications_created_at ON `notifications`;
-CREATE INDEX idx_notifications_created_at ON `notifications`(created_at DESC);
-
-DROP INDEX IF EXISTS idx_event_registrations_qr_image_path ON `event_registrations`;
-CREATE INDEX idx_event_registrations_qr_image_path ON `event_registrations`(qr_image_path);
+DROP PROCEDURE IF EXISTS create_index_if_missing;
 
 -- =====================================================
 -- VIEWS
@@ -768,21 +731,19 @@ BEGIN
     END IF;
 END$$
 
+-- One BEFORE INSERT trigger per table: multiple triggers with the same
+-- timing/event are only portable from MySQL 5.7 onwards, so id and token
+-- are defaulted in a single trigger.
 DROP TRIGGER IF EXISTS trg_invite_links_set_uuid$$
-CREATE TRIGGER trg_invite_links_set_uuid
+DROP TRIGGER IF EXISTS trg_invite_links_set_token$$
+DROP TRIGGER IF EXISTS trg_invite_links_set_defaults$$
+CREATE TRIGGER trg_invite_links_set_defaults
 BEFORE INSERT ON `invite_links`
 FOR EACH ROW
 BEGIN
     IF NEW.id IS NULL OR NEW.id = '' THEN
         SET NEW.id = UUID();
     END IF;
-END$$
-
-DROP TRIGGER IF EXISTS trg_invite_links_set_token$$
-CREATE TRIGGER trg_invite_links_set_token
-BEFORE INSERT ON `invite_links`
-FOR EACH ROW
-BEGIN
     IF NEW.token IS NULL OR NEW.token = '' THEN
         SET NEW.token = LOWER(SHA2(CONCAT(UUID(), RAND()), 256));
     END IF;
@@ -860,12 +821,16 @@ BEGIN
     WHERE email = p_email;
 END$$
 
+-- A stored function that writes cannot be created while binary logging is on
+-- (MySQL error 1418), so the lock check is read-only and the expired-lock
+-- reset lives in the unlock_expired_accounts() procedure below.
 DROP FUNCTION IF EXISTS is_account_locked$$
-CREATE FUNCTION is_account_locked(p_email VARCHAR(150)) RETURNS TINYINT(1)
-MODIFIES SQL DATA
+CREATE FUNCTION is_account_locked(p_email VARCHAR(150)) RETURNS BOOLEAN
+NOT DETERMINISTIC
+READS SQL DATA
 BEGIN
     DECLARE v_id VARCHAR(36) DEFAULT NULL;
-    DECLARE v_account_locked TINYINT(1) DEFAULT 0;
+    DECLARE v_account_locked BOOLEAN DEFAULT 0;
     DECLARE v_lockout_until DATETIME DEFAULT NULL;
 
     SELECT id, account_locked, lockout_until
@@ -874,27 +839,31 @@ BEGIN
     WHERE email = p_email
     LIMIT 1;
 
-    IF v_id IS NULL THEN
+    IF v_id IS NULL OR v_account_locked = 0 THEN
         RETURN 0;
     END IF;
 
-    IF v_account_locked = 0 THEN
-        RETURN 0;
-    END IF;
-
-    IF v_lockout_until < NOW() THEN
-        UPDATE `users`
-        SET account_locked = 0,
-            failed_login_attempts = 0
-        WHERE email = p_email;
+    IF v_lockout_until IS NULL OR v_lockout_until < NOW() THEN
         RETURN 0;
     END IF;
 
     RETURN 1;
 END$$
 
+DROP PROCEDURE IF EXISTS unlock_expired_accounts$$
+CREATE PROCEDURE unlock_expired_accounts()
+MODIFIES SQL DATA
+BEGIN
+    UPDATE `users`
+    SET account_locked = 0,
+        failed_login_attempts = 0
+    WHERE account_locked = 1
+      AND (lockout_until IS NULL OR lockout_until < NOW());
+END$$
+
 DROP FUNCTION IF EXISTS get_lockout_remaining_minutes$$
 CREATE FUNCTION get_lockout_remaining_minutes(p_email VARCHAR(150)) RETURNS INT
+NOT DETERMINISTIC
 READS SQL DATA
 BEGIN
     DECLARE v_remaining_seconds INT DEFAULT NULL;
